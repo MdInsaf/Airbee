@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, CalendarDays, BedDouble, Users, Megaphone, BarChart3,
   Settings, MessageSquare, LogOut, Hexagon, Bot, Brain, Zap,
-  UserCheck, MessageCircleHeart, ShieldAlert,
+  UserCheck, MessageCircleHeart, ShieldAlert, Globe2,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -32,6 +32,7 @@ const aiNav = [
 const marketingNav = [
   { title: "Marketing", url: "/admin/marketing", icon: Megaphone },
   { title: "Messaging", url: "/admin/messaging", icon: MessageSquare },
+  { title: "Channel Manager", url: "/admin/channels", icon: Globe2 },
 ];
 
 const systemNav = [

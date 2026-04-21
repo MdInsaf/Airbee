@@ -1,12 +1,26 @@
 /**
- * AIR BEE — AWS API Gateway Client
+ * AIR BEE — AWS API Client
  * Replaces the Supabase client for all data fetching.
- * Uses AWS Amplify to get Cognito JWT tokens for every request.
+ * Uses AWS Amplify auth tokens and supports either direct API URLs
+ * or same-origin CloudFront routing.
  */
 
 import { fetchAuthSession } from "aws-amplify/auth";
 
-const API_URL = import.meta.env.VITE_API_URL as string;
+function normalizeApiBaseUrl(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw || raw === "." || raw === "/") {
+    return "";
+  }
+  return raw.replace(/\/+$/, "");
+}
+
+function buildApiUrl(path: string) {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${API_URL}${normalizedPath}`;
+}
+
+const API_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_URL);
 const LOCAL_DEV = import.meta.env.VITE_LOCAL_DEV === "true";
 const AUTH_CACHE_BUFFER_MS = 30_000;
 
@@ -67,7 +81,7 @@ async function request<T>(
   body?: unknown
 ): Promise<T> {
   const auth = await getAuthHeader();
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(buildApiUrl(path), {
     method,
     headers: {
       Authorization: auth,
@@ -90,7 +104,7 @@ async function publicRequest<T>(
   path: string,
   body?: unknown
 ): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(buildApiUrl(path), {
     method,
     headers: {
       "Content-Type": "application/json",
@@ -118,7 +132,7 @@ export const api = {
   /** Call an AI endpoint — returns parsed JSON response */
   ai: async <T>(endpoint: string, body: unknown = {}): Promise<T> => {
     const auth = await getAuthHeader();
-    const res = await fetch(`${API_URL}/ai/${endpoint}`, {
+    const res = await fetch(buildApiUrl(`/ai/${endpoint}`), {
       method: "POST",
       headers: { Authorization: auth, "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -130,7 +144,7 @@ export const api = {
   /** Stream an AI endpoint (ai-copilot) — returns Response for SSE reading */
   aiStream: async (endpoint: string, body: unknown): Promise<Response> => {
     const auth = await getAuthHeader();
-    const res = await fetch(`${API_URL}/ai/${endpoint}`, {
+    const res = await fetch(buildApiUrl(`/ai/${endpoint}`), {
       method: "POST",
       headers: { Authorization: auth, "Content-Type": "application/json" },
       body: JSON.stringify(body),

@@ -8,7 +8,16 @@
       "Bash(powershell.exe -Command \"python -m awscli --version\")",
       "Bash(powershell.exe -Command \"pip install psycopg2-binary --quiet\")",
       "Bash(powershell.exe -Command \"python -m awscli configure list\")",
-      "Bash(powershell.exe -Command \"docker --version\")"
+      "Bash(powershell.exe -Command \"docker --version\")",
+      "Bash(aws lambda:*)",
+      "Bash(aws rds:*)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(i['DBInstanceIdentifier'], i['DBInstanceStatus'], i['Endpoint']['Address']\\) for i in d.get\\('DBInstances',[]\\)]\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" https://fu6frsnvui.execute-api.ap-south-1.amazonaws.com/public/health)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" https://3iy51exnql.execute-api.ap-south-1.amazonaws.com/public/health)",
+      "Bash(curl -s https://fu6frsnvui.execute-api.ap-south-1.amazonaws.com/public/health)",
+      "Bash(curl -s https://3iy51exnql.execute-api.ap-south-1.amazonaws.com/public/health)",
+      "Bash(curl -s https://fu6frsnvui.execute-api.ap-south-1.amazonaws.com/public/booking/settings/demo)",
+      "Bash(curl -s https://3iy51exnql.execute-api.ap-south-1.amazonaws.com/api/rooms/ -H \"Authorization: Bearer test\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\moham\\.claude\\projects\\f--hackaton"

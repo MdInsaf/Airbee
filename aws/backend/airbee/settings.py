@@ -50,6 +50,7 @@ CORS_ALLOW_HEADERS = ["authorization", "content-type"]
 COGNITO_USER_POOL_ID = os.environ.get("COGNITO_USER_POOL_ID", "")
 COGNITO_REGION = os.environ.get("AWS_REGION", "us-east-1")
 BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
+API_SURFACE = os.environ.get("AIRBEE_API_SURFACE", "all").strip().lower()
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 USE_TZ = True

@@ -1,5 +1,7 @@
 # Local environment files
 .env
+.env.local
+.env.*.local
 
 # Python cache artifacts
 **/__pycache__/
@@ -10,3 +12,13 @@ aws/backend/package/
 aws/backend/function.zip
 aws/cognito-trigger-py/package/
 aws/cognito-trigger-py/function.zip
+
+# Browser automation / CDP session artifacts
+.edge-cdp*/
+.cloudfront-build/
+
+# Temporary debug files
+tmp-*
+
+# Node
+node_modules/

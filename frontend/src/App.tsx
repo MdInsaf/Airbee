@@ -6,10 +6,13 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Suspense, lazy } from "react";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { AdminLayout } from "@/components/admin/AdminLayout";
+import { isCoralBeachBookingHost } from "@/lib/custom-booking-sites";
+import { shouldRenderPublicBookingAtRoot, supportsPlatformRoutes } from "@/lib/site-hosts";
 
 const Index = lazy(() => import("./pages/Index"));
 const Auth = lazy(() => import("./pages/Auth"));
 const NotFound = lazy(() => import("./pages/NotFound"));
+const CoralBeachBooking = lazy(() => import("./pages/CoralBeachBooking"));
 const PublicBooking = lazy(() => import("./pages/PublicBooking"));
 const Dashboard = lazy(() => import("@/pages/admin/Dashboard"));
 const Rooms = lazy(() => import("@/pages/admin/Rooms"));
@@ -25,6 +28,7 @@ const DynamicPricing = lazy(() => import("@/pages/admin/DynamicPricing"));
 const GuestIntelligence = lazy(() => import("@/pages/admin/GuestIntelligence"));
 const SentimentAnalysis = lazy(() => import("@/pages/admin/SentimentAnalysis"));
 const BookingRisk = lazy(() => import("@/pages/admin/BookingRisk"));
+const Channels = lazy(() => import("@/pages/admin/Channels"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,6 +46,58 @@ const RouteFallback = () => (
   </div>
 );
 
+const RootRoute = () => {
+  if (typeof window !== "undefined" && isCoralBeachBookingHost(window.location.host)) {
+    return <CoralBeachBooking />;
+  }
+  if (typeof window !== "undefined" && shouldRenderPublicBookingAtRoot(window.location.host)) {
+    return <PublicBooking />;
+  }
+  return <Index />;
+};
+
+const PublicExperienceRoute = () => {
+  if (typeof window !== "undefined" && isCoralBeachBookingHost(window.location.host)) {
+    return <CoralBeachBooking />;
+  }
+
+  return <PublicBooking />;
+};
+
+const AppRoutes = () => {
+  const platformRoutesEnabled = supportsPlatformRoutes();
+
+  return (
+    <Routes>
+      <Route path="/" element={<RootRoute />} />
+      <Route path="/preview/coral-beach" element={<CoralBeachBooking />} />
+      <Route path="/book" element={<PublicExperienceRoute />} />
+      <Route path="/book/:slug" element={<PublicExperienceRoute />} />
+      {platformRoutesEnabled ? <Route path="/auth" element={<Auth />} /> : null}
+      {platformRoutesEnabled ? (
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route index element={<Dashboard />} />
+          <Route path="rooms" element={<Rooms />} />
+          <Route path="bookings" element={<Bookings />} />
+          <Route path="guests" element={<Guests />} />
+          <Route path="marketing" element={<Marketing />} />
+          <Route path="messaging" element={<Messaging />} />
+          <Route path="reports" element={<Reports />} />
+          <Route path="settings" element={<Settings />} />
+          <Route path="ai-copilot" element={<AICopilot />} />
+          <Route path="forecasting" element={<Forecasting />} />
+          <Route path="dynamic-pricing" element={<DynamicPricing />} />
+          <Route path="guest-intelligence" element={<GuestIntelligence />} />
+          <Route path="sentiment" element={<SentimentAnalysis />} />
+          <Route path="booking-risk" element={<BookingRisk />} />
+          <Route path="channels" element={<Channels />} />
+        </Route>
+      ) : null}
+      <Route path="*" element={<NotFound />} />
+    </Routes>
+  );
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -49,31 +105,13 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Suspense fallback={<RouteFallback />}>
-          <AuthProvider>
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/auth" element={<Auth />} />
-              <Route path="/book" element={<PublicBooking />} />
-              <Route path="/book/:slug" element={<PublicBooking />} />
-              <Route path="/admin" element={<AdminLayout />}>
-                <Route index element={<Dashboard />} />
-                <Route path="rooms" element={<Rooms />} />
-                <Route path="bookings" element={<Bookings />} />
-                <Route path="guests" element={<Guests />} />
-                <Route path="marketing" element={<Marketing />} />
-                <Route path="messaging" element={<Messaging />} />
-                <Route path="reports" element={<Reports />} />
-                <Route path="settings" element={<Settings />} />
-                <Route path="ai-copilot" element={<AICopilot />} />
-                <Route path="forecasting" element={<Forecasting />} />
-                <Route path="dynamic-pricing" element={<DynamicPricing />} />
-                <Route path="guest-intelligence" element={<GuestIntelligence />} />
-                <Route path="sentiment" element={<SentimentAnalysis />} />
-                <Route path="booking-risk" element={<BookingRisk />} />
-              </Route>
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </AuthProvider>
+          {supportsPlatformRoutes() ? (
+            <AuthProvider>
+              <AppRoutes />
+            </AuthProvider>
+          ) : (
+            <AppRoutes />
+          )}
         </Suspense>
       </BrowserRouter>
     </TooltipProvider>

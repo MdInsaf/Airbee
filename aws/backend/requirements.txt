@@ -8,3 +8,6 @@ cryptography==42.0.0
 requests==2.31.0
 django-cors-headers==4.3.1
 openai==1.35.0
+dnspython==2.6.1
+tldextract==5.1.2
+icalendar==5.0.12

@@ -1,6 +1,7 @@
 from django.urls import path
 from api.views import (
     bookings,
+    channels,
     dashboard,
     demo_seed,
     guests,
@@ -33,6 +34,7 @@ urlpatterns = [
 
     # Settings
     path("settings", settings_view.SettingsView.as_view()),
+    path("settings/domain/verify", settings_view.DomainVerificationView.as_view()),
     path("settings/room-categories", settings_view.RoomCategoriesView.as_view()),
 
     # Messaging
@@ -49,6 +51,11 @@ urlpatterns = [
     path("marketing/campaigns", marketing.CampaignList.as_view()),
     path("marketing/campaigns/<str:campaign_id>", marketing.CampaignDetail.as_view()),
     path("marketing/campaigns/<str:campaign_id>/launch", marketing.CampaignLaunch.as_view()),
+
+    # Channel Manager
+    path("channels", channels.ChannelList.as_view()),
+    path("channels/<str:channel_id>", channels.ChannelDetail.as_view()),
+    path("channels/<str:channel_id>/sync", channels.ChannelSync.as_view()),
 
     # Demo seed
     path("demo/seed", demo_seed.DemoSeedView.as_view()),

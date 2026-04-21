@@ -23,6 +23,14 @@ $DB_PASS     = "AirBee2025!" # Change this to your preferred password
 $ROOT        = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BACKEND_DIR = "$ROOT\aws\backend"
 $TRIGGER_DIR = "$ROOT\aws\cognito-trigger-py"
+$PUBLIC_BASE_DOMAIN = $env:PUBLIC_BASE_DOMAIN
+$PUBLIC_CNAME_TARGET = $env:PUBLIC_CNAME_TARGET
+$PLATFORM_HOSTS = $env:PLATFORM_HOSTS
+$AMPLIFY_APP_ID = $env:AMPLIFY_APP_ID
+$AMPLIFY_BRANCH = if ($env:AMPLIFY_BRANCH) { $env:AMPLIFY_BRANCH } else { "main" }
+$AMPLIFY_REGION = if ($env:AMPLIFY_REGION) { $env:AMPLIFY_REGION } else { $REGION }
+$VITE_PLATFORM_HOSTS = if ($env:VITE_PLATFORM_HOSTS) { $env:VITE_PLATFORM_HOSTS } else { $PLATFORM_HOSTS }
+$VITE_PUBLIC_BASE_DOMAIN = if ($env:VITE_PUBLIC_BASE_DOMAIN) { $env:VITE_PUBLIC_BASE_DOMAIN } else { $PUBLIC_BASE_DOMAIN }
 
 Write-Host ""
 Write-Host "======================================" -ForegroundColor Cyan
@@ -96,6 +104,17 @@ foreach ($policyArn in $requiredPolicyArns) {
     }
     Write-Host "  Policy ensured: $policyArn" -ForegroundColor Green
 }
+$amplifyPolicyDoc = @'
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["amplify:CreateDomainAssociation","amplify:GetDomainAssociation","amplify:UpdateDomainAssociation","amplify:DeleteDomainAssociation","amplify:ListDomainAssociations","amplify:GetApp"],"Resource":"*"}]}
+'@
+$amplifyPolicyFile = "$env:TEMP\airbee-amplify-domain-policy.json"
+$amplifyPolicyDoc | Out-File -FilePath $amplifyPolicyFile -Encoding ascii
+python -m awscli iam put-role-policy `
+    --role-name $LAMBDA_ROLE `
+    --policy-name "airbee-amplify-domain-management" `
+    --policy-document "file://$amplifyPolicyFile" `
+    --output json | Out-Null
+Write-Host "  Inline policy ensured: airbee-amplify-domain-management" -ForegroundColor Green
 Write-Host "  Waiting 15s for role to propagate..." -ForegroundColor Gray
 Start-Sleep -Seconds 15
 
@@ -406,6 +425,12 @@ $backendEnvMap = [ordered]@{
     BEDROCK_FALLBACK_MODEL_ID = "apac.amazon.nova-lite-v1:0"
     DJANGO_SECRET_KEY    = "airbee-hackathon-secret-2025"
 }
+if ($PUBLIC_BASE_DOMAIN) { $backendEnvMap["PUBLIC_BASE_DOMAIN"] = $PUBLIC_BASE_DOMAIN }
+if ($PUBLIC_CNAME_TARGET) { $backendEnvMap["PUBLIC_CNAME_TARGET"] = $PUBLIC_CNAME_TARGET }
+if ($PLATFORM_HOSTS) { $backendEnvMap["PLATFORM_HOSTS"] = $PLATFORM_HOSTS }
+if ($AMPLIFY_APP_ID) { $backendEnvMap["AMPLIFY_APP_ID"] = $AMPLIFY_APP_ID }
+if ($AMPLIFY_BRANCH) { $backendEnvMap["AMPLIFY_BRANCH"] = $AMPLIFY_BRANCH }
+if ($AMPLIFY_REGION) { $backendEnvMap["AMPLIFY_REGION"] = $AMPLIFY_REGION }
 
 # Preserve existing bearer token if already set in Lambda and no new one passed.
 $existingBackendCfg = & {
@@ -488,7 +513,17 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # Deploy airbee-cognito-trigger
-$triggerEnvVars = "DB_HOST=$DB_HOST,DB_PORT=5432,DB_NAME=$DB_NAME,DB_USER=$DB_USER,DB_PASSWORD=$DB_PASS"
+$triggerEnvMap = [ordered]@{
+    DB_HOST = $DB_HOST
+    DB_PORT = "5432"
+    DB_NAME = $DB_NAME
+    DB_USER = $DB_USER
+    DB_PASSWORD = $DB_PASS
+    AWS_REGION = $REGION
+}
+if ($PUBLIC_BASE_DOMAIN) { $triggerEnvMap["PUBLIC_BASE_DOMAIN"] = $PUBLIC_BASE_DOMAIN }
+$triggerEnvPath = "$env:TEMP\airbee-trigger-env.json"
+(@{ Variables = $triggerEnvMap } | ConvertTo-Json -Compress) | Out-File -FilePath $triggerEnvPath -Encoding ascii
 $triggerExists = & { $ErrorActionPreference = "Continue"; python -m awscli lambda get-function --function-name "airbee-cognito-trigger" --region $REGION --output json 2>$null }
 if ($LASTEXITCODE -ne 0) {
     $triggerCreateOut = & {
@@ -501,7 +536,7 @@ if ($LASTEXITCODE -ne 0) {
             --zip-file "fileb://$triggerZip" `
             --timeout 30 `
             --memory-size 256 `
-            --environment "Variables={$triggerEnvVars}" `
+            --environment "file://$triggerEnvPath" `
             --region $REGION `
             --output json 2>&1
     }
@@ -528,7 +563,7 @@ if ($LASTEXITCODE -ne 0) {
         $ErrorActionPreference = "Continue"
         python -m awscli lambda update-function-configuration `
             --function-name "airbee-cognito-trigger" `
-            --environment "Variables={$triggerEnvVars}" `
+            --environment "file://$triggerEnvPath" `
             --region $REGION `
             --output json 2>&1
     }
@@ -757,6 +792,13 @@ VITE_COGNITO_USER_POOL_ID=$POOL_ID
 VITE_COGNITO_CLIENT_ID=$CLIENT_ID
 VITE_API_URL=$API_URL
 "@
+
+if ($VITE_PLATFORM_HOSTS) {
+    $envContent += "VITE_PLATFORM_HOSTS=$VITE_PLATFORM_HOSTS`n"
+}
+if ($VITE_PUBLIC_BASE_DOMAIN) {
+    $envContent += "VITE_PUBLIC_BASE_DOMAIN=$VITE_PUBLIC_BASE_DOMAIN`n"
+}
 
 $envContent | Out-File -FilePath "$ROOT\frontend\.env.local" -Encoding ascii
 Write-Host "  Written: frontend\.env.local" -ForegroundColor Green

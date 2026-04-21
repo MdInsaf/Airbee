@@ -28,8 +28,17 @@ CREATE TABLE tenants (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   slug TEXT NOT NULL UNIQUE,
+  subdomain TEXT UNIQUE,
   domain TEXT,
+  primary_hostname TEXT,
+  booking_site_enabled BOOLEAN DEFAULT true,
+  domain_status TEXT DEFAULT 'none',
+  domain_verified_at TIMESTAMPTZ,
+  domain_last_checked_at TIMESTAMPTZ,
+  domain_last_error TEXT,
+  domain_config JSONB DEFAULT '{}',
   settings JSONB DEFAULT '{}',
+  booking_theme JSONB DEFAULT '{}',
   gst_enabled BOOLEAN DEFAULT false,
   gst_percentage NUMERIC(5,2) DEFAULT 0,
   gst_number TEXT,
@@ -49,6 +58,10 @@ CREATE TABLE tenants (
 CREATE TRIGGER update_tenants_updated_at
   BEFORE UPDATE ON tenants
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE UNIQUE INDEX idx_tenants_domain_lower
+  ON tenants(lower(domain))
+  WHERE domain IS NOT NULL;
 
 -- PROFILES (id = Cognito sub, stored as VARCHAR)
 CREATE TABLE profiles (

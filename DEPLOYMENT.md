@@ -8,6 +8,8 @@
 ```
 **Region:** us-east-1 (required for Bedrock Claude access)
 
+For production you can keep the original single backend, or split it into a protected platform API and a public booking API that still share the same RDS database.
+
 ---
 
 ## Step 1 — Create RDS PostgreSQL
@@ -85,6 +87,12 @@ COGNITO_USER_POOL_ID=<your-user-pool-id>
 AWS_REGION=us-east-1
 BEDROCK_REGION=us-east-1
 DJANGO_SECRET_KEY=<any-random-string>
+PUBLIC_BASE_DOMAIN=book.airbee.com
+PUBLIC_CNAME_TARGET=<shared-booking-hostname>
+PLATFORM_HOSTS=<comma-separated admin or marketing hosts>
+AMPLIFY_APP_ID=<your-amplify-app-id>
+AMPLIFY_BRANCH=main
+AMPLIFY_REGION=ap-south-1
 ```
 
 ### 5b — airbee-cognito-trigger (Python)
@@ -134,6 +142,7 @@ AWS_REGION=us-east-1
 ```
 ANY  /api/{proxy+}   → airbee-backend  [JWT auth]
 ANY  /ai/{proxy+}    → airbee-backend  [JWT auth]
+ANY  /public/{proxy+}→ airbee-backend  [no auth]
 ```
 
 4. CORS: Origins `*`, Methods `*`, Headers: `Authorization, Content-Type`
@@ -143,19 +152,138 @@ ANY  /ai/{proxy+}    → airbee-backend  [JWT auth]
 
 ## Step 8 — Deploy Frontend on AWS Amplify
 
+### 8a — Platform App Hosting
+
 1. Amplify Console → New App → Host web app → GitHub
 2. Select repo, branch: `insaf` (or `main`)
-3. Build settings: auto-detected from `amplify.yml` in repo root
+3. Build settings: use [amplify-platform.yml](/f:/Airbee/amplify-platform.yml)
 
 **Environment variables in Amplify:**
 ```
 VITE_COGNITO_USER_POOL_ID=us-east-1_XXXXXXXXX
 VITE_COGNITO_CLIENT_ID=xxxxxxxxxxxxxxxxxxxxxxxxxx
 VITE_API_URL=https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com
+VITE_APP_HOSTING_MODE=platform
+VITE_PLATFORM_HOSTS=app.airbee.com,admin.airbee.com
+VITE_PUBLIC_BASE_DOMAIN=book.airbee.com
 ```
 
-4. Deploy → Wait for build to complete
-5. Note the Amplify URL (e.g., `https://main.d1234abcd.amplifyapp.com`)
+4. Attach your admin/marketing host, such as `app.airbee.com`
+
+### 8b — Booking App Hosting
+
+1. Create a second Amplify app from the same repo and branch
+2. Build settings: use [amplify-booking.yml](/f:/Airbee/amplify-booking.yml)
+
+**Environment variables in Amplify:**
+```
+VITE_API_URL=https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com
+VITE_APP_HOSTING_MODE=booking
+VITE_PUBLIC_BASE_DOMAIN=book.airbee.com
+```
+
+3. This app does not need Cognito frontend env vars unless you deliberately want auth pages there
+4. Attach the public booking hosts and custom domains to this second Amplify app
+5. Note both Amplify URLs separately
+
+You can also bootstrap both Amplify apps from the CLI with:
+
+```powershell
+.\scripts\ensure-amplify-split-hosting.ps1 `
+  -Repository <git-repo-url> `
+  -BranchName main `
+  -AccessToken <provider-access-token> `
+  -PlatformApiUrl https://<platform-api-id>.execute-api.ap-south-1.amazonaws.com `
+  -BookingApiUrl https://<booking-api-id>.execute-api.ap-south-1.amazonaws.com `
+  -UserPoolId <cognito-user-pool-id> `
+  -UserPoolClientId <cognito-client-id> `
+  -PlatformHosts app.airbee.com,admin.airbee.com `
+  -PublicBaseDomain book.airbee.com
+```
+
+## Split Backend Deployment
+
+If you want separate AWS backends for the admin platform and the public booking site, keep the same database but deploy two Lambda and HTTP API Gateway targets from the same Django codebase:
+
+- `airbee-platform-api` exposes `/api/*` and `/ai/*` with JWT auth
+- `airbee-booking-api` exposes `/public/*` without auth
+
+The backend code already supports this with `AIRBEE_API_SURFACE`. Use:
+
+```powershell
+.\scripts\ensure-split-backend.ps1 `
+  -SourceLambdaName airbee-backend `
+  -PlatformLambdaName airbee-platform-api `
+  -BookingLambdaName airbee-booking-api `
+  -PlatformApiName airbee-platform-api `
+  -BookingApiName airbee-booking-api `
+  -WriteFrontendEnvFiles
+```
+
+By default the script reads shared settings from `airbee-backend` and reuses its database, IAM role, Cognito pool, domain config, and Bedrock config. Pass overrides explicitly if you are bootstrapping without an existing unified backend.
+
+When `-WriteFrontendEnvFiles` is enabled, it writes:
+
+- `frontend/.env.platform.local`
+- `frontend/.env.booking.local`
+
+Then point split Amplify hosting at those two API URLs:
+
+```powershell
+.\scripts\ensure-amplify-split-hosting.ps1 `
+  -Repository <git-repo-url> `
+  -BranchName main `
+  -AccessToken <provider-access-token> `
+  -PlatformApiUrl https://<platform-api-id>.execute-api.ap-south-1.amazonaws.com `
+  -BookingApiUrl https://<booking-api-id>.execute-api.ap-south-1.amazonaws.com `
+  -UserPoolId <cognito-user-pool-id> `
+  -UserPoolClientId <cognito-client-id> `
+  -PlatformHosts app.airbee.com,admin.airbee.com `
+  -PublicBaseDomain book.airbee.com
+```
+
+## S3 + CloudFront + Lambda Hosting
+
+If you want the cheaper static-hosting path, keep the split Lambda backend and serve the frontend from S3 behind CloudFront instead of Amplify.
+
+This repo now supports that flow with:
+
+- [ensure-s3-cloudfront-lambda-hosting.ps1](/f:/Airbee/scripts/ensure-s3-cloudfront-lambda-hosting.ps1)
+- [cloudfront-forward-host.js](/f:/Airbee/scripts/cloudfront-forward-host.js)
+- [cloudfront-spa-rewrite.js](/f:/Airbee/scripts/cloudfront-spa-rewrite.js)
+
+What the script does:
+
+- ensures public Lambda Function URLs for `airbee-platform-api` and `airbee-booking-api`
+- builds the `platform` and `booking` frontend targets with blank `VITE_API_URL` for same-origin routing
+- creates private S3 buckets for the two frontend builds
+- creates CloudFront distributions with:
+  - default origin = S3 static build
+  - `/api/*` and `/ai/*` routed to the platform Lambda Function URL
+  - `/public/*` routed to the booking Lambda Function URL
+- preserves the viewer host in `X-Forwarded-Host` so tenant host-based booking still works through CloudFront
+- updates `PUBLIC_CNAME_TARGET` on the Lambda env so the existing DNS verification fallback points at the booking CloudFront target
+
+Basic command:
+
+```powershell
+.\scripts\ensure-s3-cloudfront-lambda-hosting.ps1
+```
+
+With first-party domains:
+
+```powershell
+.\scripts\ensure-s3-cloudfront-lambda-hosting.ps1 `
+  -PlatformAliases app.airbee.com `
+  -BookingAliases book.airbee.com,*.book.airbee.com `
+  -CertificateArn <acm-certificate-arn-in-us-east-1>
+```
+
+Notes:
+
+- The ACM certificate for CloudFront aliases must be in `us-east-1`.
+- For this path, leave `VITE_API_URL` blank at build time so the frontend uses same-origin routes through CloudFront.
+- The wildcard booking alias is what allows tenant subdomains such as `hotel.book.airbee.com`.
 
 ---
 
@@ -199,8 +327,38 @@ aws/
 - [ ] Click "Daily AI Briefing" → AI response appears
 - [ ] Create a room → appears in room list
 - [ ] Create a booking → appears in bookings table
+- [ ] Open `/admin/settings` and confirm a platform booking URL is shown
+- [ ] Add a custom domain CNAME to `PUBLIC_CNAME_TARGET`
+- [ ] Click "Verify Custom Domain" and confirm status becomes `verified`
 - [ ] Click Forecasting → Bedrock response renders charts
 - [ ] Click AI Copilot → type a question → response appears
+
+---
+
+## Custom Domain Workflow
+
+Use the dedicated booking Amplify app for all public booking hosts.
+
+1. Set `PUBLIC_BASE_DOMAIN` on the backend to your tenant subdomain base, such as `book.airbee.com`.
+2. Deploy the platform app with `VITE_APP_HOSTING_MODE=platform`.
+3. Deploy the booking app with `VITE_APP_HOSTING_MODE=booking`.
+4. Expose the booking base domain to the public booking app with `VITE_PUBLIC_BASE_DOMAIN`.
+5. Keep your dashboard and marketing hosts in `PLATFORM_HOSTS` and `VITE_PLATFORM_HOSTS`.
+6. If you want the app to manage certificates and DNS instructions through Amplify, also set:
+   - `AMPLIFY_APP_ID`
+   - `AMPLIFY_BRANCH`
+   - `AMPLIFY_REGION`
+7. Bootstrap the wildcard booking domain on the booking Amplify app:
+```powershell
+.\scripts\ensure-amplify-platform-domain.ps1 -AppId <app-id> -DomainName book.airbee.com -BranchName main
+```
+8. In the Settings screen, the operator can enter a custom domain like `stay.hotelname.com` and click `Sync Custom Domain`.
+9. When Amplify mode is enabled, the app will create or update the domain association and surface the exact DNS records required for:
+   - certificate validation
+   - application routing
+10. If the operator clears or changes the custom domain and saves settings, the app deprovisions the previous Amplify custom-domain mapping before keeping the tenant on the new domain or the platform subdomain.
+11. When Amplify mode is not enabled, the app falls back to the shared-CNAME verifier using `PUBLIC_CNAME_TARGET`.
+12. Until the domain is fully provisioned, the tenant continues using the platform subdomain.
 
 ---
 

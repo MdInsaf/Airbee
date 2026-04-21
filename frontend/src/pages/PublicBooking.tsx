@@ -9,17 +9,34 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import { buildTenantSiteUrl, getCurrentHost, isPlatformHost } from "@/lib/site-hosts";
 import { useToast } from "@/hooks/use-toast";
 
 type PropertyInfo = {
   id: string;
   name: string;
   slug: string;
+  subdomain?: string | null;
+  domain?: string | null;
+  primary_hostname?: string | null;
   contact_email: string | null;
   contact_phone: string | null;
   address: string | null;
   currency: string | null;
   timezone: string | null;
+  logo_url?: string | null;
+  booking_site?: {
+    hero_title?: string | null;
+    hero_subtitle?: string | null;
+    support_email?: string | null;
+    support_phone?: string | null;
+    cta_label?: string | null;
+  };
+  booking_theme?: {
+    primary_color?: string | null;
+    accent_color?: string | null;
+    surface_style?: string | null;
+  };
   gst_enabled: boolean;
   gst_percentage: number;
   service_charge_enabled: boolean;
@@ -146,6 +163,34 @@ function normalizeStringArray(value: string[] | string | null | undefined) {
   }
 }
 
+function normalizeHexColor(value: string | null | undefined, fallback: string) {
+  const raw = String(value || "").trim();
+  if (/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(raw)) return raw;
+  return fallback;
+}
+
+function hexToRgb(hex: string) {
+  const normalized = hex.replace("#", "");
+  const full = normalized.length === 3 ? normalized.split("").map((char) => `${char}${char}`).join("") : normalized;
+  const intValue = parseInt(full, 16);
+  return {
+    r: (intValue >> 16) & 255,
+    g: (intValue >> 8) & 255,
+    b: intValue & 255,
+  };
+}
+
+function withAlpha(hex: string, alpha: number) {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function getTextColor(hex: string) {
+  const { r, g, b } = hexToRgb(hex);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.62 ? "#111827" : "#ffffff";
+}
+
 const PublicBooking = () => {
   const { slug } = useParams();
   const navigate = useNavigate();
@@ -156,6 +201,7 @@ const PublicBooking = () => {
   const [search, setSearch] = useState(defaultSearchState);
   const [loading, setLoading] = useState(false);
   const [propertyData, setPropertyData] = useState<PropertyResponse | null>(null);
+  const [resolvedByHost, setResolvedByHost] = useState(false);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [confirmation, setConfirmation] = useState<BookingResponse | null>(null);
@@ -165,6 +211,16 @@ const PublicBooking = () => {
     guest_phone: "",
     notes: "",
   });
+
+  function applyLoadedProperty(data: PropertyResponse, mode: "slug" | "host") {
+    setPropertyData(data);
+    setResolvedByHost(mode === "host");
+    setSlugInput(data.property.slug || "");
+    setConfirmation(null);
+    if (selectedRoomId && !data.rooms.some((room) => room.id === selectedRoomId)) {
+      setSelectedRoomId(null);
+    }
+  }
 
   async function loadProperty(targetSlug: string, withSearch = true) {
     setLoading(true);
@@ -179,13 +235,10 @@ const PublicBooking = () => {
       const data = await api.publicGet<PropertyResponse>(
         `/public/properties/${encodeURIComponent(targetSlug)}${query ? `?${query}` : ""}`
       );
-      setPropertyData(data);
-      setConfirmation(null);
-      if (selectedRoomId && !data.rooms.some((room) => room.id === selectedRoomId)) {
-        setSelectedRoomId(null);
-      }
+      applyLoadedProperty(data, "slug");
     } catch (error) {
       setPropertyData(null);
+      setResolvedByHost(false);
       setSelectedRoomId(null);
       toast({
         title: "Booking page unavailable",
@@ -197,11 +250,43 @@ const PublicBooking = () => {
     }
   }
 
+  async function loadCurrentSite(withSearch = true, showError = true) {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (withSearch) {
+        params.set("check_in", search.check_in);
+        params.set("check_out", search.check_out);
+        params.set("guests", String(search.guests));
+      }
+      const query = params.toString();
+      const data = await api.publicGet<PropertyResponse>(`/public/site${query ? `?${query}` : ""}`);
+      applyLoadedProperty(data, "host");
+    } catch (error) {
+      setPropertyData(null);
+      setResolvedByHost(false);
+      setSelectedRoomId(null);
+      if (showError) {
+        toast({
+          title: "Booking page unavailable",
+          description: parseErrorMessage(error),
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
     setSlugInput(slug || "");
     if (slug) {
+      setResolvedByHost(false);
       void loadProperty(slug, true);
+    } else if (typeof window !== "undefined" && !isPlatformHost(window.location.host)) {
+      void loadCurrentSite(true, true);
     } else {
+      setResolvedByHost(false);
       setPropertyData(null);
       setSelectedRoomId(null);
       setConfirmation(null);
@@ -212,6 +297,47 @@ const PublicBooking = () => {
   const currency = propertyData?.property.currency || "INR";
   const availableRooms = propertyData?.rooms.length || 0;
   const nights = propertyData?.search.nights || 0;
+  const currentHost = getCurrentHost();
+  const bookingSiteUrl = buildTenantSiteUrl(
+    propertyData?.property.subdomain,
+    propertyData?.property.domain,
+    propertyData?.property.slug
+  );
+  const heroTitle = propertyData?.property.booking_site?.hero_title || propertyData?.property.name || "Book your stay";
+  const heroSubtitle =
+    propertyData?.property.booking_site?.hero_subtitle ||
+    "Search live room availability, compare pricing, and submit a reservation request in one flow.";
+  const supportEmail = propertyData?.property.booking_site?.support_email || propertyData?.property.contact_email;
+  const supportPhone = propertyData?.property.booking_site?.support_phone || propertyData?.property.contact_phone;
+  const ctaLabel = propertyData?.property.booking_site?.cta_label || "Reserve this room";
+  const primaryColor = normalizeHexColor(propertyData?.property.booking_theme?.primary_color, "#f59e0b");
+  const accentColor = normalizeHexColor(propertyData?.property.booking_theme?.accent_color, "#111827");
+  const primaryTextColor = getTextColor(primaryColor);
+  const surfaceStyle = propertyData?.property.booking_theme?.surface_style || "warm";
+  const surfaceTint = surfaceStyle === "cool" ? "#dbeafe" : surfaceStyle === "earth" ? "#f5efe6" : "#f8fafc";
+  const pageStyle = {
+    backgroundColor: surfaceTint,
+    backgroundImage: `radial-gradient(circle at top, ${withAlpha(primaryColor, 0.22)}, transparent 34%), linear-gradient(180deg, ${surfaceTint}, ${withAlpha(accentColor, 0.06)})`,
+  } as const;
+  const softPanelStyle = {
+    borderColor: withAlpha(primaryColor, 0.18),
+    backgroundColor: withAlpha(primaryColor, 0.08),
+  } as const;
+  const highlightedPanelStyle = {
+    borderColor: withAlpha(primaryColor, 0.25),
+    backgroundColor: withAlpha(primaryColor, 0.1),
+  } as const;
+  const primaryButtonStyle = {
+    backgroundColor: primaryColor,
+    borderColor: primaryColor,
+    color: primaryTextColor,
+  } as const;
+  const accentIconStyle = { color: primaryColor } as const;
+  const brandBadgeStyle = {
+    borderColor: withAlpha(primaryColor, 0.3),
+    backgroundColor: withAlpha(primaryColor, 0.1),
+    color: accentColor,
+  } as const;
 
   const scrollToReservation = () => {
     reservationPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -225,6 +351,11 @@ const PublicBooking = () => {
   };
 
   const handleSearch = async () => {
+    if (resolvedByHost && !slug) {
+      await loadCurrentSite(true, true);
+      return;
+    }
+
     if (!slugInput.trim()) {
       toast({
         title: "Property slug required",
@@ -243,12 +374,16 @@ const PublicBooking = () => {
   };
 
   const handleBooking = async () => {
-    if (!slug || !selectedRoom) return;
+    if (!selectedRoom) return;
 
     setSubmitting(true);
     try {
+      const bookingPath =
+        resolvedByHost && !slug
+          ? "/public/site/bookings"
+          : `/public/properties/${encodeURIComponent(slug || slugInput)}/bookings`;
       const result = await api.publicPost<BookingResponse>(
-        `/public/properties/${encodeURIComponent(slug)}/bookings`,
+        bookingPath,
         {
           room_id: selectedRoom.id,
           guest_name: bookingForm.guest_name,
@@ -269,7 +404,11 @@ const PublicBooking = () => {
         notes: "",
       });
       toast({ title: "Reservation created", description: "Your booking request has been submitted." });
-      await loadProperty(slug, true);
+      if (resolvedByHost && !slug) {
+        await loadCurrentSite(true, false);
+      } else {
+        await loadProperty(slug || slugInput, true);
+      }
     } catch (error) {
       toast({
         title: "Booking failed",
@@ -282,40 +421,54 @@ const PublicBooking = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_hsl(var(--primary)/0.14),_transparent_30%),linear-gradient(180deg,hsl(var(--background)),hsl(var(--muted)/0.45))]">
+    <div className="min-h-screen" style={pageStyle}>
       <div className="mx-auto max-w-7xl px-4 py-6 pb-28 sm:px-6 sm:py-8 xl:px-8 xl:pb-8">
         <div className="space-y-6">
           <section className="overflow-hidden rounded-[2rem] border bg-background/90 shadow-sm backdrop-blur">
             <div className="grid gap-6 p-5 sm:p-6 xl:grid-cols-[minmax(0,1fr)_260px] xl:items-end">
               <div className="space-y-5">
-                <Badge variant="outline" className="gap-2 px-3 py-1 text-xs uppercase tracking-[0.24em]">
-                  <BedDouble className="h-3.5 w-3.5" />
+                <Badge variant="outline" className="gap-2 px-3 py-1 text-xs uppercase tracking-[0.24em]" style={brandBadgeStyle}>
+                  <BedDouble className="h-3.5 w-3.5" style={accentIconStyle} />
                   AIR BEE Booking Engine
                 </Badge>
                 <div className="space-y-3">
+                  {propertyData?.property.logo_url ? (
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={propertyData.property.logo_url}
+                        alt={`${propertyData.property.name} logo`}
+                        className="h-14 w-14 rounded-2xl border bg-background object-cover p-1"
+                        style={{ borderColor: withAlpha(primaryColor, 0.2) }}
+                      />
+                      <div className="text-sm text-muted-foreground">
+                        <p className="font-medium text-foreground">{propertyData.property.name}</p>
+                        <p>Direct booking website</p>
+                      </div>
+                    </div>
+                  ) : null}
                   <h1 className="text-3xl font-bold tracking-tight sm:text-4xl xl:text-5xl">
-                    {propertyData?.property.name || "Book your stay"}
+                    {heroTitle}
                   </h1>
                   <p className="max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-                    Search live room availability, compare pricing, and submit a reservation request in one flow.
+                    {heroSubtitle}
                   </p>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-2xl border bg-muted/35 p-4">
+                  <div className="rounded-2xl border p-4" style={softPanelStyle}>
                     <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Available now</p>
                     <p className="mt-2 text-2xl font-semibold">{propertyData ? availableRooms : "--"}</p>
                     <p className="text-xs text-muted-foreground">
                       {propertyData ? "Rooms matching the selected dates" : "Load a property to see inventory"}
                     </p>
                   </div>
-                  <div className="rounded-2xl border bg-muted/35 p-4">
+                  <div className="rounded-2xl border p-4" style={softPanelStyle}>
                     <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Stay length</p>
                     <p className="mt-2 text-2xl font-semibold">{propertyData ? nights : "--"}</p>
                     <p className="text-xs text-muted-foreground">
                       {propertyData ? "Night(s) in your current search" : "Choose check-in and check-out"}
                     </p>
                   </div>
-                  <div className="rounded-2xl border bg-muted/35 p-4">
+                  <div className="rounded-2xl border p-4" style={softPanelStyle}>
                     <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Guest count</p>
                     <p className="mt-2 text-2xl font-semibold">{search.guests}</p>
                     <p className="text-xs text-muted-foreground">Capacity filter applied to each room</p>
@@ -359,18 +512,19 @@ const PublicBooking = () => {
 
             <div className="mt-5 grid gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.35fr)_repeat(3,minmax(0,1fr))]">
               <div className="space-y-2">
-                <Label htmlFor="property-slug">Property slug</Label>
+                <Label htmlFor="property-slug">{resolvedByHost ? "Booking website" : "Property slug"}</Label>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Input
                     id="property-slug"
-                    value={slugInput}
+                    value={resolvedByHost ? currentHost : slugInput}
                     onChange={(event) => setSlugInput(event.target.value)}
-                    placeholder="for example demo-user"
+                    placeholder={resolvedByHost ? "tenant host" : "for example demo-user"}
                     className="sm:flex-1"
+                    readOnly={resolvedByHost}
                   />
                   <Button onClick={handleSearch} disabled={loading} className="w-full sm:w-auto">
                     <Search className="mr-2 h-4 w-4" />
-                    {loading ? "Searching..." : "Search"}
+                    {loading ? "Searching..." : resolvedByHost ? "Refresh" : "Search"}
                   </Button>
                 </div>
               </div>
@@ -444,6 +598,7 @@ const PublicBooking = () => {
                           <article
                             key={room.id}
                             className="rounded-[1.75rem] border bg-muted/30 p-4 transition-colors hover:border-primary/40 sm:p-5"
+                            style={softPanelStyle}
                           >
                             <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                               <div className="min-w-0 space-y-3">
@@ -512,8 +667,8 @@ const PublicBooking = () => {
                                   </div>
                                 ) : null}
 
-                                <Button className="mt-4 w-full" onClick={() => handleRoomSelect(room.id)}>
-                                  Reserve this room
+                                <Button className="mt-4 w-full" onClick={() => handleRoomSelect(room.id)} style={primaryButtonStyle}>
+                                  {ctaLabel}
                                   <ArrowRight className="ml-2 h-4 w-4" />
                                 </Button>
                               </div>
@@ -530,29 +685,38 @@ const PublicBooking = () => {
                 <Card className="rounded-[2rem] border bg-background/90 shadow-sm">
                   <CardHeader>
                     <CardTitle>Property details</CardTitle>
-                    <CardDescription>Share this page with guests using your property slug.</CardDescription>
+                    <CardDescription>
+                      {resolvedByHost
+                        ? "This booking site is resolved from the current host."
+                        : "Share this page with guests using your property slug."}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3 text-sm">
+                    {bookingSiteUrl ? (
+                      <div className="rounded-xl border px-3 py-2 text-xs text-muted-foreground" style={softPanelStyle}>
+                        Live URL: <span className="font-medium text-foreground">{bookingSiteUrl}</span>
+                      </div>
+                    ) : null}
                     {propertyData.property.address ? (
                       <div className="flex items-start gap-3">
-                        <MapPin className="mt-0.5 h-4 w-4 text-primary" />
+                        <MapPin className="mt-0.5 h-4 w-4" style={accentIconStyle} />
                         <span>{propertyData.property.address}</span>
                       </div>
                     ) : null}
-                    {propertyData.property.contact_email ? (
+                    {supportEmail ? (
                       <div className="flex items-center gap-3">
-                        <Mail className="h-4 w-4 text-primary" />
-                        <span className="break-all">{propertyData.property.contact_email}</span>
+                        <Mail className="h-4 w-4" style={accentIconStyle} />
+                        <span className="break-all">{supportEmail}</span>
                       </div>
                     ) : null}
-                    {propertyData.property.contact_phone ? (
+                    {supportPhone ? (
                       <div className="flex items-center gap-3">
-                        <Phone className="h-4 w-4 text-primary" />
-                        <span>{propertyData.property.contact_phone}</span>
+                        <Phone className="h-4 w-4" style={accentIconStyle} />
+                        <span>{supportPhone}</span>
                       </div>
                     ) : null}
                     <div className="flex items-center gap-3">
-                      <Users className="h-4 w-4 text-primary" />
+                      <Users className="h-4 w-4" style={accentIconStyle} />
                       <span>{search.guests} guest(s) selected</span>
                     </div>
                   </CardContent>
@@ -570,7 +734,7 @@ const PublicBooking = () => {
                   <CardContent className="space-y-4">
                     {selectedRoom ? (
                       <>
-                        <div className="rounded-2xl border bg-muted/40 p-4 text-sm">
+                        <div className="rounded-2xl border p-4 text-sm" style={softPanelStyle}>
                           <div className="flex items-center justify-between gap-4">
                             <span className="text-muted-foreground">Room</span>
                             <span className="text-right font-medium">{selectedRoom.name}</span>
@@ -627,7 +791,12 @@ const PublicBooking = () => {
                             placeholder="Arrival time, preferences, add-on requests..."
                           />
                         </div>
-                        <Button className="w-full" onClick={handleBooking} disabled={submitting}>
+                        <Button
+                          className="w-full"
+                          onClick={handleBooking}
+                          disabled={submitting}
+                          style={primaryButtonStyle}
+                        >
                           {submitting ? "Submitting..." : "Submit reservation"}
                         </Button>
                       </>
@@ -640,9 +809,9 @@ const PublicBooking = () => {
                 </Card>
 
                 {confirmation ? (
-                  <Card className="rounded-[2rem] border border-emerald-200 bg-emerald-50/80 shadow-sm dark:border-emerald-900 dark:bg-emerald-950/30">
+                  <Card className="rounded-[2rem] border shadow-sm" style={highlightedPanelStyle}>
                     <CardHeader>
-                      <CardTitle className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300">
+                      <CardTitle className="flex items-center gap-2" style={{ color: accentColor }}>
                         <CheckCircle2 className="h-5 w-5" />
                         Reservation submitted
                       </CardTitle>
@@ -672,7 +841,7 @@ const PublicBooking = () => {
               <CardContent className="px-6 py-14 text-center text-sm text-muted-foreground">
                 {loading
                   ? "Loading property availability..."
-                  : "Open a property by slug to search rooms and accept bookings."}
+                  : "Open a property by slug or visit a tenant booking host to search rooms and accept bookings."}
               </CardContent>
             </Card>
           )}
@@ -688,7 +857,7 @@ const PublicBooking = () => {
                   {selectedRoom.pricing ? " total stay" : " per night"}
                 </p>
               </div>
-              <Button onClick={scrollToReservation} className="shrink-0">
+              <Button onClick={scrollToReservation} className="shrink-0" style={primaryButtonStyle}>
                 Continue
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>

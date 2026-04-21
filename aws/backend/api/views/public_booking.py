@@ -1,4 +1,5 @@
 import json
+import os
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -49,13 +50,38 @@ def _safe_float(value, default=0.0):
         return default
 
 
-def _get_property(slug):
+def _normalize_host(raw_host):
+    host = str(raw_host or "").strip().lower()
+    if not host:
+        return ""
+    return host.split(",")[0].split(":")[0].rstrip(".")
+
+
+def _get_platform_hosts():
+    configured = str(os.environ.get("PLATFORM_HOSTS", "") or "")
+    hosts = {
+        "localhost",
+        "127.0.0.1",
+    }
+    for item in configured.split(","):
+        normalized = _normalize_host(item)
+        if normalized:
+            hosts.add(normalized)
+    return hosts
+
+
+def _get_platform_base_domain():
+    return str(os.environ.get("PUBLIC_BASE_DOMAIN", "") or "").strip().lower() or None
+
+
+def _get_property_by_slug(slug):
     with connection.cursor() as cur:
         cur.execute(
             """
             SELECT id, name, slug, contact_email, contact_phone, address, currency, timezone,
-                   logo_url, gst_enabled, gst_percentage, service_charge_enabled,
-                   service_charge_percentage
+                   logo_url, subdomain, domain, primary_hostname, booking_theme,
+                   settings->'booking_site' AS booking_site, booking_site_enabled,
+                   gst_enabled, gst_percentage, service_charge_enabled, service_charge_percentage
             FROM tenants
             WHERE slug = %s
             """,
@@ -66,6 +92,73 @@ def _get_property(slug):
             return None
         cols = [c[0] for c in cur.description]
         return _serialize(row, cols)
+
+
+def _get_property_by_host(host):
+    normalized_host = _normalize_host(host)
+    if not normalized_host or normalized_host in _get_platform_hosts():
+        return None
+    base_domain = _get_platform_base_domain()
+    subdomain_label = None
+    if base_domain and normalized_host.endswith(f".{base_domain}") and normalized_host != base_domain:
+        subdomain_label = normalized_host[: -(len(base_domain) + 1)]
+
+    with connection.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, name, slug, contact_email, contact_phone, address, currency, timezone,
+                   logo_url, subdomain, domain, primary_hostname, booking_theme,
+                   settings->'booking_site' AS booking_site, booking_site_enabled,
+                   gst_enabled, gst_percentage, service_charge_enabled, service_charge_percentage,
+                   CASE
+                       WHEN lower(domain) = %s AND lower(COALESCE(domain_status, 'none')) = 'verified' THEN 1
+                       WHEN lower(primary_hostname) = %s THEN 2
+                       WHEN %s IS NOT NULL AND lower(subdomain) = %s THEN 3
+                       ELSE 9
+                   END AS host_priority
+            FROM tenants
+            WHERE (lower(domain) = %s AND lower(COALESCE(domain_status, 'none')) = 'verified')
+               OR (
+                    lower(primary_hostname) = %s
+                    AND (
+                        domain IS NULL
+                        OR btrim(domain) = ''
+                        OR lower(COALESCE(domain_status, 'none')) = 'verified'
+                    )
+               )
+               OR (%s IS NOT NULL AND lower(subdomain) = %s)
+            ORDER BY host_priority ASC, updated_at DESC
+            LIMIT 1
+            """,
+            [
+                normalized_host,
+                normalized_host,
+                subdomain_label,
+                subdomain_label,
+                normalized_host,
+                normalized_host,
+                subdomain_label,
+                subdomain_label,
+            ],
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        cols = [c[0] for c in cur.description]
+        property_data = _serialize(row, cols)
+        property_data.pop("host_priority", None)
+        return property_data
+
+
+def _resolve_property(request, property_slug=None):
+    if property_slug:
+        return _get_property_by_slug(property_slug)
+    forwarded_host = request.META.get("HTTP_X_FORWARDED_HOST")
+    return _get_property_by_host(forwarded_host or request.META.get("HTTP_HOST") or request.get_host())
+
+
+def _booking_site_disabled_response():
+    return Response({"error": "Booking site is disabled for this property"}, status=status.HTTP_404_NOT_FOUND)
 
 
 def _calculate_pricing(property_data, room, guests, nights):
@@ -135,194 +228,228 @@ def _fetch_rooms(tenant_id, check_in=None, check_out=None, guests=1):
         return [_serialize(row, cols) for row in cur.fetchall()]
 
 
+def _build_property_payload(property_data, request):
+    check_in_raw = request.GET.get("check_in")
+    check_out_raw = request.GET.get("check_out")
+    guests = max(1, _safe_int(request.GET.get("guests"), 1))
+
+    check_in = _parse_date(check_in_raw) if check_in_raw else None
+    check_out = _parse_date(check_out_raw) if check_out_raw else None
+
+    if (check_in_raw and not check_in) or (check_out_raw and not check_out):
+        return Response(
+            {"error": "Dates must be in YYYY-MM-DD format"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if check_in and check_out and check_out <= check_in:
+        return Response(
+            {"error": "Check-out must be after check-in"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    rooms = _fetch_rooms(property_data["id"], check_in, check_out, guests)
+    nights = (check_out - check_in).days if check_in and check_out else 0
+
+    for room in rooms:
+        if nights > 0:
+            room["pricing"] = _calculate_pricing(property_data, room, guests, nights)
+
+    return Response(
+        {
+            "property": property_data,
+            "rooms": rooms,
+            "search": {
+                "check_in": check_in.isoformat() if check_in else None,
+                "check_out": check_out.isoformat() if check_out else None,
+                "guests": guests,
+                "nights": nights,
+            },
+        }
+    )
+
+
+def _create_booking(property_data, request):
+    payload = request.data
+    room_id = payload.get("room_id")
+    guest_name = (payload.get("guest_name") or "").strip()
+    guest_email = (payload.get("guest_email") or "").strip()
+    guest_phone = (payload.get("guest_phone") or "").strip()
+    notes = (payload.get("notes") or "").strip()
+    guests = max(1, _safe_int(payload.get("guests"), 1))
+    check_in = _parse_date(payload.get("check_in"))
+    check_out = _parse_date(payload.get("check_out"))
+
+    if not room_id or not guest_name or not guest_email or not check_in or not check_out:
+        return Response(
+            {"error": "room_id, guest_name, guest_email, check_in, and check_out are required"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if check_out <= check_in:
+        return Response(
+            {"error": "Check-out must be after check-in"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    with connection.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, tenant_id, name, description, max_guests, base_price, status,
+                   minimum_stay, base_occupancy, extra_guest_fee,
+                   check_in_time, check_out_time, cancellation_policy
+            FROM rooms
+            WHERE id = %s AND tenant_id = %s
+            """,
+            [room_id, property_data["id"]],
+        )
+        room_row = cur.fetchone()
+        if not room_row:
+            return Response({"error": "Room not found"}, status=status.HTTP_404_NOT_FOUND)
+        room_cols = [c[0] for c in cur.description]
+        room = _serialize(room_row, room_cols)
+
+        if room.get("status") != "available":
+            return Response(
+                {"error": "This room is not open for booking"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if guests > _safe_int(room.get("max_guests"), 1):
+            return Response(
+                {"error": "Selected room does not support that many guests"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        nights = (check_out - check_in).days
+        minimum_stay = max(1, _safe_int(room.get("minimum_stay"), 1))
+        if nights < minimum_stay:
+            return Response(
+                {"error": f"Minimum stay for this room is {minimum_stay} night(s)"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        cur.execute(
+            """
+            SELECT 1
+            FROM bookings
+            WHERE tenant_id = %s
+              AND room_id = %s
+              AND status IN ('pending', 'confirmed')
+              AND check_in < %s
+              AND check_out > %s
+            LIMIT 1
+            """,
+            [property_data["id"], room_id, check_out, check_in],
+        )
+        if cur.fetchone():
+            return Response(
+                {"error": "That room is no longer available for the selected dates"},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        pricing = _calculate_pricing(property_data, room, guests, nights)
+        booking_id = str(uuid.uuid4())
+        cur.execute(
+            """
+            INSERT INTO bookings (
+                id, tenant_id, room_id, guest_name, guest_email, guest_phone,
+                check_in, check_out, guests, total_amount, base_amount,
+                tax_amount, service_charge, status, payment_status, notes
+            )
+            VALUES (
+                %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s,
+                %s, %s, 'pending', 'unpaid', %s
+            )
+            RETURNING id, guest_name, guest_email, guest_phone, check_in, check_out,
+                      guests, total_amount, base_amount, tax_amount, service_charge,
+                      status, payment_status, notes, created_at
+            """,
+            [
+                booking_id,
+                property_data["id"],
+                room_id,
+                guest_name,
+                guest_email,
+                guest_phone or None,
+                check_in,
+                check_out,
+                guests,
+                pricing["total_amount"],
+                pricing["base_amount"],
+                pricing["tax_amount"],
+                pricing["service_charge"],
+                notes or None,
+            ],
+        )
+        booking_cols = [c[0] for c in cur.description]
+        booking = _serialize(cur.fetchone(), booking_cols)
+
+    return Response(
+        {
+            "message": "Reservation request created successfully",
+            "booking": booking,
+            "property": {
+                "name": property_data["name"],
+                "slug": property_data["slug"],
+                "currency": property_data["currency"],
+            },
+            "room": {
+                "id": room["id"],
+                "name": room["name"],
+                "check_in_time": room.get("check_in_time"),
+                "check_out_time": room.get("check_out_time"),
+            },
+            "pricing": pricing,
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+
 class PublicPropertyView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, property_slug):
-        property_data = _get_property(property_slug)
+        property_data = _resolve_property(request, property_slug)
         if not property_data:
             return Response({"error": "Property not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not property_data.get("booking_site_enabled", True):
+            return _booking_site_disabled_response()
+        return _build_property_payload(property_data, request)
 
-        check_in_raw = request.GET.get("check_in")
-        check_out_raw = request.GET.get("check_out")
-        guests = max(1, _safe_int(request.GET.get("guests"), 1))
 
-        check_in = _parse_date(check_in_raw) if check_in_raw else None
-        check_out = _parse_date(check_out_raw) if check_out_raw else None
+class PublicSiteView(APIView):
+    permission_classes = [AllowAny]
 
-        if (check_in_raw and not check_in) or (check_out_raw and not check_out):
-            return Response(
-                {"error": "Dates must be in YYYY-MM-DD format"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if check_in and check_out and check_out <= check_in:
-            return Response(
-                {"error": "Check-out must be after check-in"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        rooms = _fetch_rooms(property_data["id"], check_in, check_out, guests)
-        nights = (check_out - check_in).days if check_in and check_out else 0
-
-        for room in rooms:
-            if nights > 0:
-                room["pricing"] = _calculate_pricing(property_data, room, guests, nights)
-
-        return Response(
-            {
-                "property": property_data,
-                "rooms": rooms,
-                "search": {
-                    "check_in": check_in.isoformat() if check_in else None,
-                    "check_out": check_out.isoformat() if check_out else None,
-                    "guests": guests,
-                    "nights": nights,
-                },
-            }
-        )
+    def get(self, request):
+        property_data = _resolve_property(request)
+        if not property_data:
+            return Response({"error": "Property not found for this host"}, status=status.HTTP_404_NOT_FOUND)
+        if not property_data.get("booking_site_enabled", True):
+            return _booking_site_disabled_response()
+        return _build_property_payload(property_data, request)
 
 
 class PublicBookingCreateView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, property_slug):
-        property_data = _get_property(property_slug)
+        property_data = _resolve_property(request, property_slug)
         if not property_data:
             return Response({"error": "Property not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not property_data.get("booking_site_enabled", True):
+            return _booking_site_disabled_response()
+        return _create_booking(property_data, request)
 
-        payload = request.data
-        room_id = payload.get("room_id")
-        guest_name = (payload.get("guest_name") or "").strip()
-        guest_email = (payload.get("guest_email") or "").strip()
-        guest_phone = (payload.get("guest_phone") or "").strip()
-        notes = (payload.get("notes") or "").strip()
-        guests = max(1, _safe_int(payload.get("guests"), 1))
-        check_in = _parse_date(payload.get("check_in"))
-        check_out = _parse_date(payload.get("check_out"))
 
-        if not room_id or not guest_name or not guest_email or not check_in or not check_out:
-            return Response(
-                {"error": "room_id, guest_name, guest_email, check_in, and check_out are required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+class PublicSiteBookingCreateView(APIView):
+    permission_classes = [AllowAny]
 
-        if check_out <= check_in:
-            return Response(
-                {"error": "Check-out must be after check-in"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        with connection.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, tenant_id, name, description, max_guests, base_price, status,
-                       minimum_stay, base_occupancy, extra_guest_fee,
-                       check_in_time, check_out_time, cancellation_policy
-                FROM rooms
-                WHERE id = %s AND tenant_id = %s
-                """,
-                [room_id, property_data["id"]],
-            )
-            room_row = cur.fetchone()
-            if not room_row:
-                return Response({"error": "Room not found"}, status=status.HTTP_404_NOT_FOUND)
-            room_cols = [c[0] for c in cur.description]
-            room = _serialize(room_row, room_cols)
-
-            if room.get("status") != "available":
-                return Response(
-                    {"error": "This room is not open for booking"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            if guests > _safe_int(room.get("max_guests"), 1):
-                return Response(
-                    {"error": "Selected room does not support that many guests"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            nights = (check_out - check_in).days
-            minimum_stay = max(1, _safe_int(room.get("minimum_stay"), 1))
-            if nights < minimum_stay:
-                return Response(
-                    {"error": f"Minimum stay for this room is {minimum_stay} night(s)"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            cur.execute(
-                """
-                SELECT 1
-                FROM bookings
-                WHERE tenant_id = %s
-                  AND room_id = %s
-                  AND status IN ('pending', 'confirmed')
-                  AND check_in < %s
-                  AND check_out > %s
-                LIMIT 1
-                """,
-                [property_data["id"], room_id, check_out, check_in],
-            )
-            if cur.fetchone():
-                return Response(
-                    {"error": "That room is no longer available for the selected dates"},
-                    status=status.HTTP_409_CONFLICT,
-                )
-
-            pricing = _calculate_pricing(property_data, room, guests, nights)
-            booking_id = str(uuid.uuid4())
-            cur.execute(
-                """
-                INSERT INTO bookings (
-                    id, tenant_id, room_id, guest_name, guest_email, guest_phone,
-                    check_in, check_out, guests, total_amount, base_amount,
-                    tax_amount, service_charge, status, payment_status, notes
-                )
-                VALUES (
-                    %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s,
-                    %s, %s, 'pending', 'unpaid', %s
-                )
-                RETURNING id, guest_name, guest_email, guest_phone, check_in, check_out,
-                          guests, total_amount, base_amount, tax_amount, service_charge,
-                          status, payment_status, notes, created_at
-                """,
-                [
-                    booking_id,
-                    property_data["id"],
-                    room_id,
-                    guest_name,
-                    guest_email,
-                    guest_phone or None,
-                    check_in,
-                    check_out,
-                    guests,
-                    pricing["total_amount"],
-                    pricing["base_amount"],
-                    pricing["tax_amount"],
-                    pricing["service_charge"],
-                    notes or None,
-                ],
-            )
-            booking_cols = [c[0] for c in cur.description]
-            booking = _serialize(cur.fetchone(), booking_cols)
-
-        return Response(
-            {
-                "message": "Reservation request created successfully",
-                "booking": booking,
-                "property": {
-                    "name": property_data["name"],
-                    "slug": property_data["slug"],
-                    "currency": property_data["currency"],
-                },
-                "room": {
-                    "id": room["id"],
-                    "name": room["name"],
-                    "check_in_time": room.get("check_in_time"),
-                    "check_out_time": room.get("check_out_time"),
-                },
-                "pricing": pricing,
-            },
-            status=status.HTTP_201_CREATED,
-        )
+    def post(self, request):
+        property_data = _resolve_property(request)
+        if not property_data:
+            return Response({"error": "Property not found for this host"}, status=status.HTTP_404_NOT_FOUND)
+        if not property_data.get("booking_site_enabled", True):
+            return _booking_site_disabled_response()
+        return _create_booking(property_data, request)

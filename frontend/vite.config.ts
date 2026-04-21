@@ -25,14 +25,6 @@ export default defineConfig(() => ({
           if (id.includes("recharts") || id.includes("d3-")) return "charts";
           if (id.includes("@aws-amplify") || id.includes("aws-amplify")) return "amplify";
           if (id.includes("@radix-ui")) return "radix";
-          if (
-            id.includes("react-router") ||
-            id.includes("react-dom") ||
-            id.includes("\\react\\") ||
-            id.includes("/react/")
-          ) {
-            return "react";
-          }
           return "vendor";
         },
       },

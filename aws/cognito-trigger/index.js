@@ -27,6 +27,70 @@ const cognitoClient = new CognitoIdentityProviderClient({
   region: process.env.AWS_REGION || "us-east-1",
 });
 
+const RESERVED_SUBDOMAINS = new Set([
+  "admin",
+  "api",
+  "app",
+  "auth",
+  "book",
+  "booking",
+  "dashboard",
+  "docs",
+  "help",
+  "mail",
+  "root",
+  "settings",
+  "support",
+  "www",
+]);
+
+function sanitizeLabel(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 63);
+}
+
+function buildPrimaryHostname(subdomain, domain = "") {
+  const customDomain = String(domain || "").trim().toLowerCase();
+  if (customDomain) return customDomain;
+
+  const baseDomain = String(process.env.PUBLIC_BASE_DOMAIN || "").trim().toLowerCase();
+  if (subdomain && baseDomain) return `${subdomain}.${baseDomain}`;
+  return subdomain || null;
+}
+
+async function generateUniqueSubdomain(client, fullName, suffix) {
+  const base = sanitizeLabel(fullName) || "property";
+  const trimmedBase = RESERVED_SUBDOMAINS.has(base) ? `${base}-hotel` : base;
+  const candidates = [
+    trimmedBase,
+    `${trimmedBase}-${suffix}`,
+    `${trimmedBase}-${suffix.slice(0, 4)}`,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = sanitizeLabel(candidate);
+    if (!normalized) continue;
+    const candidateHost = buildPrimaryHostname(normalized) || normalized;
+    const result = await client.query(
+      `SELECT 1
+       FROM tenants
+       WHERE lower(subdomain) = lower($1)
+          OR lower(COALESCE(domain, '')) = lower($2)
+          OR lower(COALESCE(primary_hostname, '')) = lower($2)
+       LIMIT 1`,
+      [normalized, candidateHost]
+    );
+    if (result.rowCount === 0) return normalized;
+  }
+
+  return sanitizeLabel(`property-${suffix}`);
+}
+
 export const handler = async (event) => {
   const { userPoolId, userName, request } = event;
   const userAttributes = request.userAttributes;
@@ -43,16 +107,39 @@ export const handler = async (event) => {
     await client.query("BEGIN");
 
     // Generate tenant slug
-    const slugBase = fullName.toLowerCase().replace(/[^a-z0-9]/g, "-");
+    const slugBase = sanitizeLabel(fullName) || "property";
     const slugSuffix = cognitoSub.substring(0, 8);
     const slug = `${slugBase}-${slugSuffix}`;
+    const subdomain = await generateUniqueSubdomain(client, fullName, slugSuffix);
+    const bookingTheme = {
+      primary_color: "#f59e0b",
+      accent_color: "#111827",
+      surface_style: "warm",
+    };
+    const bookingSite = {
+      hero_title: `${fullName}'s Property`,
+      hero_subtitle: "Search live availability and accept direct bookings.",
+      support_email: email,
+      support_phone: "",
+      cta_label: "Book your stay",
+    };
 
     // Create tenant
     const tenantResult = await client.query(
-      `INSERT INTO tenants (name, slug, currency, timezone)
-       VALUES ($1, $2, 'INR', 'Asia/Kolkata')
+      `INSERT INTO tenants (
+         name, slug, subdomain, primary_hostname, booking_site_enabled,
+         domain_status, settings, booking_theme, currency, timezone
+       )
+       VALUES ($1, $2, $3, $4, true, 'none', $5::jsonb, $6::jsonb, 'INR', 'Asia/Kolkata')
        RETURNING id`,
-      [`${fullName}'s Property`, slug]
+      [
+        `${fullName}'s Property`,
+        slug,
+        subdomain,
+        buildPrimaryHostname(subdomain),
+        JSON.stringify({ booking_site: bookingSite }),
+        JSON.stringify(bookingTheme),
+      ]
     );
     const tenantId = tenantResult.rows[0].id;
 
