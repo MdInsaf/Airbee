@@ -3,7 +3,7 @@ from datetime import datetime, timezone, date
 from decimal import Decimal
 
 import requests
-from django.db import connection
+from django.db import connection, transaction
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -64,8 +64,21 @@ class ChannelList(APIView):
             return Response({"error": "name is required"}, status=400)
         if platform not in ALLOWED_PLATFORMS:
             platform = "other"
+        if room_id:
+            try:
+                room_id = str(uuid.UUID(room_id))
+            except Exception:
+                return Response({"error": "Valid room_id is required"}, status=400)
 
         with connection.cursor() as cur:
+            if room_id:
+                cur.execute(
+                    "SELECT 1 FROM rooms WHERE id = %s AND tenant_id = %s LIMIT 1",
+                    [room_id, tenant_id],
+                )
+                if not cur.fetchone():
+                    return Response({"error": "Room not found"}, status=404)
+
             cur.execute(
                 """
                 INSERT INTO channels (tenant_id, name, platform, room_id, ical_url)
@@ -147,11 +160,33 @@ class ChannelSync(APIView):
             if check_out <= check_in:
                 continue
 
-            with connection.cursor() as cur:
+            with transaction.atomic(), connection.cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM rooms WHERE id=%s AND tenant_id=%s FOR UPDATE",
+                    [room_id, tenant_id],
+                )
+
                 # Skip if already imported
                 cur.execute(
                     "SELECT id FROM bookings WHERE tenant_id=%s AND room_id=%s AND external_uid=%s",
                     [tenant_id, room_id, uid],
+                )
+                if cur.fetchone():
+                    skipped += 1
+                    continue
+
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM bookings
+                    WHERE tenant_id=%s
+                      AND room_id=%s
+                      AND status IN ('pending', 'confirmed')
+                      AND check_in < %s
+                      AND check_out > %s
+                    LIMIT 1
+                    """,
+                    [tenant_id, room_id, check_out, check_in],
                 )
                 if cur.fetchone():
                     skipped += 1
@@ -167,7 +202,7 @@ class ChannelSync(APIView):
                     """,
                     [tenant_id, room_id, summary, check_in, check_out, ch_name, uid],
                 )
-                created += 1
+                created += cur.rowcount
 
         with connection.cursor() as cur:
             cur.execute(

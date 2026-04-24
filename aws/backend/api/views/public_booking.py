@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from django.db import connection
+from django.db import connection, transaction
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -292,7 +292,7 @@ def _create_booking(property_data, request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    with connection.cursor() as cur:
+    with transaction.atomic(), connection.cursor() as cur:
         cur.execute(
             """
             SELECT id, tenant_id, name, description, max_guests, base_price, status,
@@ -300,6 +300,7 @@ def _create_booking(property_data, request):
                    check_in_time, check_out_time, cancellation_policy
             FROM rooms
             WHERE id = %s AND tenant_id = %s
+            FOR UPDATE
             """,
             [room_id, property_data["id"]],
         )

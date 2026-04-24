@@ -28,6 +28,12 @@ interface Room {
   name: string;
 }
 
+interface SettingsResponse {
+  tenant: {
+    slug?: string | null;
+  } | null;
+}
+
 const PLATFORM_LABELS: Record<string, string> = {
   airbnb: "Airbnb",
   bookingcom: "Booking.com",
@@ -66,6 +72,7 @@ export default function Channels() {
   const { toast } = useToast();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [tenantSlug, setTenantSlug] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -75,10 +82,13 @@ export default function Channels() {
     try {
       const [chRes, rmRes] = await Promise.all([
         api.get<{ channels: Channel[] }>("/api/channels"),
-        api.get<{ rooms: Room[] }>("/api/rooms"),
+        api.get<Room[]>("/api/rooms"),
       ]);
       setChannels(chRes.channels);
-      setRooms(rmRes.rooms);
+      setRooms(rmRes);
+
+      const settings = await api.get<SettingsResponse>("/api/settings");
+      setTenantSlug(settings.tenant?.slug || null);
     } catch {
       toast({ title: "Failed to load channels", variant: "destructive" });
     } finally {
@@ -135,8 +145,8 @@ export default function Channels() {
 
   const getICalExportUrl = (roomId: string) => {
     const apiBase = import.meta.env.VITE_API_URL || "";
-    const tenantSlug = "grand-airbee"; // TODO: get from settings context
-    return `${apiBase}/public/ical/${tenantSlug}/${roomId}.ics`;
+    if (!tenantSlug) return "";
+    return `${apiBase}/public/ical/${encodeURIComponent(tenantSlug)}/${roomId}.ics`;
   };
 
   return (

@@ -35,15 +35,31 @@ def _safe_float(value, default):
         return default
 
 
-def _normalize_room_payload(data):
+def _payload_string(data, key, partial=False):
+    if partial and key not in data:
+        return None
+    return (data.get(key) or "").strip()
+
+
+def _normalize_room_payload(data, partial=False):
+    has_name = "name" in data or not partial
+    has_description = "description" in data or not partial
+    has_category_id = "category_id" in data or not partial
+    has_max_guests = "max_guests" in data or not partial
+    has_base_price = "base_price" in data or not partial
+    has_status = "status" in data or not partial
+    has_housekeeping_status = "housekeeping_status" in data or not partial
+
     return {
-        "name": (data.get("name") or "").strip(),
-        "description": (data.get("description") or "").strip() or None,
-        "category_id": (data.get("category_id") or "").strip() or None,
-        "max_guests": max(1, _safe_int(data.get("max_guests"), 2)),
-        "base_price": max(0.0, _safe_float(data.get("base_price"), 0.0)),
-        "status": (data.get("status") or "").strip() or None,
-        "housekeeping_status": (data.get("housekeeping_status") or "").strip() or None,
+        "name": _payload_string(data, "name", partial) if has_name else None,
+        "description": (_payload_string(data, "description", partial) or None) if has_description else None,
+        "category_id": (_payload_string(data, "category_id", partial) or None) if has_category_id else None,
+        "max_guests": max(1, _safe_int(data.get("max_guests"), 2)) if has_max_guests else None,
+        "base_price": max(0.0, _safe_float(data.get("base_price"), 0.0)) if has_base_price else None,
+        "status": (_payload_string(data, "status", partial) or None) if has_status else None,
+        "housekeeping_status": (
+            _payload_string(data, "housekeeping_status", partial) or None
+        ) if has_housekeeping_status else None,
     }
 
 
@@ -110,7 +126,7 @@ class RoomList(APIView):
 class RoomDetail(APIView):
     def put(self, request, room_id):
         tenant_id = request.user.tenant_id
-        d = _normalize_room_payload(request.data)
+        d = _normalize_room_payload(request.data, partial=True)
         if d["status"] and d["status"] not in ALLOWED_ROOM_STATUS:
             return Response({"error": "Invalid room status"}, status=status.HTTP_400_BAD_REQUEST)
         if d["housekeeping_status"] and d["housekeeping_status"] not in ALLOWED_HOUSEKEEPING_STATUS:
