@@ -154,6 +154,14 @@ def _resolve_property(request, property_slug=None):
     if property_slug:
         return _get_property_by_slug(property_slug)
     forwarded_host = request.META.get("HTTP_X_FORWARDED_HOST")
+    if not forwarded_host:
+        origin = request.META.get("HTTP_ORIGIN", "")
+        if origin:
+            try:
+                from urllib.parse import urlparse
+                forwarded_host = urlparse(origin).netloc or None
+            except Exception:
+                pass
     return _get_property_by_host(forwarded_host or request.META.get("HTTP_HOST") or request.get_host())
 
 
