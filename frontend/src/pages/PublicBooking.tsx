@@ -321,16 +321,16 @@ const PublicBooking = () => {
     : surfaceStyle === "earth" ? "#f5efe6"
     : "#f8fafc";
   const pageStyle = isDark
-    ? { backgroundColor: "#132d1e", backgroundImage: "linear-gradient(160deg, #1a3a2e 0%, #1e5c4e 55%, #132d1e 100%)" } as const
+    ? { backgroundColor: "#122820", backgroundImage: "linear-gradient(135deg, #122820 0%, #173942 100%)" } as const
     : {
         backgroundColor: surfaceTint,
         backgroundImage: `radial-gradient(circle at top, ${withAlpha(primaryColor, 0.22)}, transparent 34%), linear-gradient(180deg, ${surfaceTint}, ${withAlpha(accentColor, 0.06)})`,
       } as const;
   const softPanelStyle = isDark
-    ? { borderColor: "rgba(255,255,255,0.1)", backgroundColor: "rgba(0,0,0,0.25)" } as const
+    ? { borderColor: "rgba(255,255,255,0.1)", backgroundColor: "rgba(18,40,32,0.46)", backdropFilter: "blur(14px)" } as const
     : { borderColor: withAlpha(primaryColor, 0.18), backgroundColor: withAlpha(primaryColor, 0.08) } as const;
   const highlightedPanelStyle = isDark
-    ? { borderColor: withAlpha(primaryColor, 0.4), backgroundColor: "rgba(0,0,0,0.3)" } as const
+    ? { borderColor: "rgba(216,185,120,0.25)", backgroundColor: "rgba(18,40,32,0.6)", backdropFilter: "blur(14px)" } as const
     : { borderColor: withAlpha(primaryColor, 0.25), backgroundColor: withAlpha(primaryColor, 0.1) } as const;
   const primaryButtonStyle = {
     backgroundColor: primaryColor,
@@ -339,15 +339,16 @@ const PublicBooking = () => {
   } as const;
   const accentIconStyle = { color: primaryColor } as const;
   const brandBadgeStyle = isDark
-    ? { borderColor: withAlpha(primaryColor, 0.5), backgroundColor: withAlpha(primaryColor, 0.2), color: primaryColor } as const
+    ? { borderColor: "rgba(216,185,120,0.35)", backgroundColor: "rgba(216,185,120,0.12)", color: "#d8b978" } as const
     : { borderColor: withAlpha(primaryColor, 0.3), backgroundColor: withAlpha(primaryColor, 0.1), color: accentColor } as const;
+  const serifHeadingStyle = isDark ? { fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 300, letterSpacing: "0.01em" } as const : {} as const;
   const cardStyle = isDark
-    ? { backgroundColor: "rgba(255,255,255,0.07)", borderColor: "rgba(255,255,255,0.12)" } as const
+    ? { backgroundColor: "rgba(18,40,32,0.46)", borderColor: "rgba(255,255,255,0.1)", backdropFilter: "blur(14px)" } as const
     : {} as const;
-  const textStyle = isDark ? { color: "#ffffff" } as const : {} as const;
-  const mutedStyle = isDark ? { color: "rgba(255,255,255,0.6)" } as const : {} as const;
+  const textStyle = isDark ? { color: "#fffaf2" } as const : {} as const;
+  const mutedStyle = isDark ? { color: "rgba(255,250,242,0.62)" } as const : {} as const;
   const inputStyle = isDark
-    ? { backgroundColor: "rgba(0,0,0,0.35)", borderColor: "rgba(255,255,255,0.15)", color: "#ffffff" } as const
+    ? { backgroundColor: "rgba(18,40,32,0.6)", borderColor: "rgba(255,255,255,0.12)", color: "#fffaf2" } as const
     : {} as const;
 
   const scrollToReservation = () => {
@@ -457,7 +458,7 @@ const PublicBooking = () => {
                       </div>
                     </div>
                   ) : null}
-                  <h1 className="text-3xl font-bold tracking-tight sm:text-4xl xl:text-5xl" style={textStyle}>
+                  <h1 className="text-3xl font-bold tracking-tight sm:text-4xl xl:text-5xl" style={{ ...textStyle, ...serifHeadingStyle }}>
                     {heroTitle}
                   </h1>
                   <p className="max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base" style={mutedStyle}>
