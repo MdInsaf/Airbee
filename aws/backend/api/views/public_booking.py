@@ -11,10 +11,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 
+_JSON_FIELDS = {"amenities", "images", "booking_theme", "booking_site"}
+
 def _serialize(row, columns):
     obj = dict(zip(columns, row))
     for key, value in obj.items():
-        if key in {"amenities", "images"} and isinstance(value, str):
+        if key in _JSON_FIELDS and isinstance(value, str):
             try:
                 obj[key] = json.loads(value)
                 continue
