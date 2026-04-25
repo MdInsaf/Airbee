@@ -79,6 +79,16 @@ const Bookings = () => {
     }
   };
 
+  const handleStatusUpdate = async (bookingId: string, newStatus: string) => {
+    try {
+      await api.put(`/api/bookings/${bookingId}`, { status: newStatus });
+      setBookings(prev => prev.map(b => b.id === bookingId ? { ...b, status: newStatus } : b));
+      toast({ title: "Booking status updated" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  };
+
   const handleCreate = async () => {
     if (!tenantId || !form.guest_name || !form.room_id || !form.check_in || !form.check_out) return;
     try {
@@ -234,7 +244,19 @@ const Bookings = () => {
                     <TableCell>{formatDate(b.check_in)}</TableCell>
                     <TableCell>{formatDate(b.check_out)}</TableCell>
                     <TableCell className="font-medium">{formatCurrency(b.total_amount)}</TableCell>
-                    <TableCell>{statusBadge(b.status)}</TableCell>
+                    <TableCell>
+                      <Select value={b.status} onValueChange={(v) => handleStatusUpdate(b.id, v)}>
+                        <SelectTrigger className="h-7 w-28 text-xs border-0 p-0 shadow-none focus:ring-0">
+                          <SelectValue>{statusBadge(b.status)}</SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="pending">pending</SelectItem>
+                          <SelectItem value="confirmed">confirmed</SelectItem>
+                          <SelectItem value="completed">completed</SelectItem>
+                          <SelectItem value="cancelled">cancelled</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
                     <TableCell>
                       <Select value={b.payment_status} onValueChange={(v) => handlePaymentUpdate(b.id, v)}>
                         <SelectTrigger className="h-7 w-24 text-xs border-0 p-0 shadow-none focus:ring-0">
