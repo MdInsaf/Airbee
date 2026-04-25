@@ -169,8 +169,8 @@ class BookingList(APIView):
                     %s,%s,%s,
                     %s,%s,COALESCE(%s,1),
                     COALESCE(%s,0), COALESCE(%s,0),
-                    COALESCE(%s,'pending'),
-                    COALESCE(%s,'unpaid'),
+                    COALESCE(%s,'pending')::booking_status,
+                    COALESCE(%s,'unpaid')::payment_status,
                     %s
                 )
                 RETURNING id, tenant_id, room_id, guest_id, guest_name, guest_email, guest_phone,
@@ -201,8 +201,8 @@ class BookingDetail(APIView):
             cur.execute(
                 """
                 UPDATE bookings SET
-                    status = COALESCE(%s, status),
-                    payment_status = COALESCE(%s, payment_status),
+                    status = COALESCE(%s::booking_status, status),
+                    payment_status = COALESCE(%s::payment_status, payment_status),
                     amount_paid = COALESCE(%s, amount_paid),
                     notes = COALESCE(%s, notes),
                     updated_at = NOW()
