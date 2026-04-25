@@ -592,10 +592,10 @@ const PublicBooking = () => {
                 <Card className="rounded-[2rem] border bg-background/90 shadow-sm" style={cardStyle}>
                   <CardHeader className="space-y-3">
                     <CardTitle className="flex flex-wrap items-center gap-2 text-2xl" style={textStyle}>
-                      <CalendarDays className="h-5 w-5 text-primary" />
+                      <CalendarDays className="h-5 w-5" style={accentIconStyle} />
                       Available rooms
                     </CardTitle>
-                    <CardDescription>
+                    <CardDescription style={mutedStyle}>
                       {nights > 0
                         ? `${availableRooms} room(s) available for ${nights} night(s).`
                         : "Select dates to view live availability and pricing."}
@@ -619,32 +619,25 @@ const PublicBooking = () => {
                             <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                               <div className="min-w-0 space-y-3">
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <h3 className="text-xl font-semibold">{room.name}</h3>
-                                  {room.category_name ? <Badge variant="secondary">{room.category_name}</Badge> : null}
+                                  <h3 className="text-xl font-semibold" style={textStyle}>{room.name}</h3>
+                                  {room.category_name ? <Badge variant="secondary" style={isDark ? { backgroundColor: "rgba(216,185,120,0.15)", color: "#d8b978", borderColor: "rgba(216,185,120,0.3)" } : {}}>{room.category_name}</Badge> : null}
                                 </div>
                                 {room.description ? (
-                                  <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+                                  <p className="max-w-2xl text-sm leading-6" style={mutedStyle}>
                                     {room.description}
                                   </p>
                                 ) : null}
-                                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                                  <span className="rounded-full border px-3 py-1">
-                                    Up to {room.max_guests} guest(s)
-                                  </span>
-                                  <span className="rounded-full border px-3 py-1">
-                                    Min stay {room.minimum_stay || 1} night(s)
-                                  </span>
-                                  <span className="rounded-full border px-3 py-1">
-                                    Check-in {room.check_in_time || "14:00"}
-                                  </span>
-                                  <span className="rounded-full border px-3 py-1">
-                                    Check-out {room.check_out_time || "11:00"}
-                                  </span>
+                                <div className="flex flex-wrap gap-2 text-xs">
+                                  {[`Up to ${room.max_guests} guest(s)`, `Min stay ${room.minimum_stay || 1} night(s)`, `Check-in ${room.check_in_time || "14:00"}`, `Check-out ${room.check_out_time || "11:00"}`].map((label) => (
+                                    <span key={label} className="rounded-full border px-3 py-1" style={{ ...mutedStyle, borderColor: isDark ? "rgba(255,255,255,0.1)" : undefined }}>
+                                      {label}
+                                    </span>
+                                  ))}
                                 </div>
                                 {amenities.length ? (
                                   <div className="flex flex-wrap gap-2">
                                     {amenities.slice(0, 6).map((item) => (
-                                      <Badge key={item} variant="outline">
+                                      <Badge key={item} variant="outline" style={isDark ? { borderColor: "rgba(255,255,255,0.15)", color: "rgba(255,250,242,0.75)" } : {}}>
                                         {item}
                                       </Badge>
                                     ))}
@@ -652,28 +645,28 @@ const PublicBooking = () => {
                                 ) : null}
                               </div>
 
-                              <div className="w-full rounded-[1.5rem] border bg-background p-4 lg:max-w-xs">
+                              <div className="w-full rounded-[1.5rem] border p-4 lg:max-w-xs" style={highlightedPanelStyle}>
                                 <div className="space-y-1">
-                                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                                  <p className="text-xs uppercase tracking-[0.2em]" style={mutedStyle}>
                                     Starting from
                                   </p>
-                                  <p className="text-2xl font-bold">
+                                  <p className="text-2xl font-bold" style={textStyle}>
                                     {formatCurrency(room.base_price, currency)}
                                   </p>
-                                  <p className="text-xs text-muted-foreground">per night</p>
+                                  <p className="text-xs" style={mutedStyle}>per night</p>
                                 </div>
 
                                 {room.pricing ? (
                                   <div className="mt-4 space-y-1 text-sm">
                                     <div className="flex items-center justify-between">
-                                      <span className="text-muted-foreground">Stay total</span>
-                                      <span className="font-semibold">
+                                      <span style={mutedStyle}>Stay total</span>
+                                      <span className="font-semibold" style={textStyle}>
                                         {formatCurrency(room.pricing.total_amount, currency)}
                                       </span>
                                     </div>
-                                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                      <span>Taxes + service</span>
-                                      <span>
+                                    <div className="flex items-center justify-between text-xs">
+                                      <span style={mutedStyle}>Taxes + service</span>
+                                      <span style={mutedStyle}>
                                         {formatCurrency(
                                           room.pricing.tax_amount + room.pricing.service_charge,
                                           currency
@@ -701,7 +694,7 @@ const PublicBooking = () => {
                 <Card className="rounded-[2rem] border bg-background/90 shadow-sm" style={cardStyle}>
                   <CardHeader>
                     <CardTitle style={textStyle}>Property details</CardTitle>
-                    <CardDescription>
+                    <CardDescription style={mutedStyle}>
                       {resolvedByHost
                         ? "This booking site is resolved from the current host."
                         : "Share this page with guests using your property slug."}
@@ -709,30 +702,30 @@ const PublicBooking = () => {
                   </CardHeader>
                   <CardContent className="space-y-3 text-sm">
                     {bookingSiteUrl ? (
-                      <div className="rounded-xl border px-3 py-2 text-xs text-muted-foreground" style={softPanelStyle}>
-                        Live URL: <span className="font-medium text-foreground">{bookingSiteUrl}</span>
+                      <div className="rounded-xl border px-3 py-2 text-xs" style={softPanelStyle}>
+                        <span style={mutedStyle}>Live URL: </span><span className="font-medium" style={textStyle}>{bookingSiteUrl}</span>
                       </div>
                     ) : null}
                     {propertyData.property.address ? (
-                      <div className="flex items-start gap-3">
-                        <MapPin className="mt-0.5 h-4 w-4" style={accentIconStyle} />
+                      <div className="flex items-start gap-3" style={mutedStyle}>
+                        <MapPin className="mt-0.5 h-4 w-4 shrink-0" style={accentIconStyle} />
                         <span>{propertyData.property.address}</span>
                       </div>
                     ) : null}
                     {supportEmail ? (
-                      <div className="flex items-center gap-3">
-                        <Mail className="h-4 w-4" style={accentIconStyle} />
+                      <div className="flex items-center gap-3" style={mutedStyle}>
+                        <Mail className="h-4 w-4 shrink-0" style={accentIconStyle} />
                         <span className="break-all">{supportEmail}</span>
                       </div>
                     ) : null}
                     {supportPhone ? (
-                      <div className="flex items-center gap-3">
-                        <Phone className="h-4 w-4" style={accentIconStyle} />
+                      <div className="flex items-center gap-3" style={mutedStyle}>
+                        <Phone className="h-4 w-4 shrink-0" style={accentIconStyle} />
                         <span>{supportPhone}</span>
                       </div>
                     ) : null}
-                    <div className="flex items-center gap-3">
-                      <Users className="h-4 w-4" style={accentIconStyle} />
+                    <div className="flex items-center gap-3" style={mutedStyle}>
+                      <Users className="h-4 w-4 shrink-0" style={accentIconStyle} />
                       <span>{search.guests} guest(s) selected</span>
                     </div>
                   </CardContent>
@@ -741,7 +734,7 @@ const PublicBooking = () => {
                 <Card className="rounded-[2rem] border bg-background/90 shadow-sm" style={cardStyle}>
                   <CardHeader>
                     <CardTitle style={textStyle}>{selectedRoom ? `Reserve ${selectedRoom.name}` : "Reservation form"}</CardTitle>
-                    <CardDescription>
+                    <CardDescription style={mutedStyle}>
                       {selectedRoom
                         ? "Submit your details to create a pending reservation request."
                         : "Choose a room to continue."}
@@ -752,13 +745,13 @@ const PublicBooking = () => {
                       <>
                         <div className="rounded-2xl border p-4 text-sm" style={softPanelStyle}>
                           <div className="flex items-center justify-between gap-4">
-                            <span className="text-muted-foreground">Room</span>
-                            <span className="text-right font-medium">{selectedRoom.name}</span>
+                            <span style={mutedStyle}>Room</span>
+                            <span className="text-right font-medium" style={textStyle}>{selectedRoom.name}</span>
                           </div>
                           {selectedRoom.pricing ? (
                             <div className="mt-2 flex items-center justify-between gap-4">
-                              <span className="text-muted-foreground">Reservation total</span>
-                              <span className="text-right font-semibold">
+                              <span style={mutedStyle}>Reservation total</span>
+                              <span className="text-right font-semibold" style={textStyle}>
                                 {formatCurrency(selectedRoom.pricing.total_amount, currency)}
                               </span>
                             </div>
