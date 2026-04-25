@@ -1,0 +1,62 @@
+{
+  "platform": {
+    "aws_region": "ap-south-1",
+    "django_settings": "airbee.settings",
+    "app_function": "airbee.wsgi.application",
+    "lambda_name": "airbee-platform-api",
+    "project_name": "airbee",
+    "runtime": "python3.12",
+    "s3_bucket": "airbee-zappa-132334512551-ap-south-1",
+    "memory_size": 512,
+    "timeout_seconds": 30,
+    "exclude": ["boto3", "botocore", "s3transfer", "dateutil", "concurrent"],
+    "environment_variables": {
+      "DB_HOST": "aws-1-ap-south-1.pooler.supabase.com",
+      "DB_PORT": "5432",
+      "DB_NAME": "postgres",
+      "DB_USER": "postgres.dlvrgnslknfehtywtzyh",
+      "DB_PASSWORD": "Airbee@@@!!",
+      "AIRBEE_API_SURFACE": "platform",
+      "DJANGO_SECRET_KEY": "airbee-hackathon-secret-2025",
+      "COGNITO_USER_POOL_ID": "ap-south-1_XaPmqKaR4",
+      "BEDROCK_REGION": "ap-south-1",
+      "BEDROCK_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",
+      "BEDROCK_FALLBACK_MODEL_ID": "apac.amazon.nova-lite-v1:0",
+      "AMPLIFY_REGION": "ap-south-1",
+      "AMPLIFY_BRANCH": "main",
+      "PLATFORM_HOSTS": "app.airbee.com,admin.airbee.com",
+      "PUBLIC_BASE_DOMAIN": "book.airbee.com",
+      "PUBLIC_CNAME_TARGET": "d1pwtvabka35ys.cloudfront.net"
+    }
+  },
+  "booking": {
+    "aws_region": "ap-south-1",
+    "django_settings": "airbee.settings",
+    "app_function": "airbee.wsgi.application",
+    "lambda_name": "airbee-booking-api",
+    "project_name": "airbee",
+    "runtime": "python3.12",
+    "s3_bucket": "airbee-zappa-132334512551-ap-south-1",
+    "memory_size": 512,
+    "timeout_seconds": 30,
+    "exclude": ["boto3", "botocore", "s3transfer", "dateutil", "concurrent"],
+    "environment_variables": {
+      "DB_HOST": "aws-1-ap-south-1.pooler.supabase.com",
+      "DB_PORT": "5432",
+      "DB_NAME": "postgres",
+      "DB_USER": "postgres.dlvrgnslknfehtywtzyh",
+      "DB_PASSWORD": "Airbee@@@!!",
+      "AIRBEE_API_SURFACE": "public",
+      "DJANGO_SECRET_KEY": "airbee-hackathon-secret-2025",
+      "COGNITO_USER_POOL_ID": "ap-south-1_XaPmqKaR4",
+      "BEDROCK_REGION": "ap-south-1",
+      "BEDROCK_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",
+      "BEDROCK_FALLBACK_MODEL_ID": "apac.amazon.nova-lite-v1:0",
+      "AMPLIFY_REGION": "ap-south-1",
+      "AMPLIFY_BRANCH": "main",
+      "PLATFORM_HOSTS": "app.airbee.com,admin.airbee.com",
+      "PUBLIC_BASE_DOMAIN": "book.airbee.com",
+      "PUBLIC_CNAME_TARGET": "d1pwtvabka35ys.cloudfront.net"
+    }
+  }
+}

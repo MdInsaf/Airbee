@@ -314,30 +314,41 @@ const PublicBooking = () => {
   const accentColor = normalizeHexColor(propertyData?.property.booking_theme?.accent_color, "#111827");
   const primaryTextColor = getTextColor(primaryColor);
   const surfaceStyle = propertyData?.property.booking_theme?.surface_style || "warm";
-  const surfaceTint = surfaceStyle === "cool" ? "#dbeafe" : surfaceStyle === "earth" ? "#f5efe6" : "#f8fafc";
-  const pageStyle = {
-    backgroundColor: surfaceTint,
-    backgroundImage: `radial-gradient(circle at top, ${withAlpha(primaryColor, 0.22)}, transparent 34%), linear-gradient(180deg, ${surfaceTint}, ${withAlpha(accentColor, 0.06)})`,
-  } as const;
-  const softPanelStyle = {
-    borderColor: withAlpha(primaryColor, 0.18),
-    backgroundColor: withAlpha(primaryColor, 0.08),
-  } as const;
-  const highlightedPanelStyle = {
-    borderColor: withAlpha(primaryColor, 0.25),
-    backgroundColor: withAlpha(primaryColor, 0.1),
-  } as const;
+  const isDark = surfaceStyle === "forest";
+  const surfaceTint = isDark
+    ? "#132d1e"
+    : surfaceStyle === "cool" ? "#dbeafe"
+    : surfaceStyle === "earth" ? "#f5efe6"
+    : "#f8fafc";
+  const pageStyle = isDark
+    ? { backgroundColor: "#132d1e", backgroundImage: "linear-gradient(160deg, #1a3a2e 0%, #1e5c4e 55%, #132d1e 100%)" } as const
+    : {
+        backgroundColor: surfaceTint,
+        backgroundImage: `radial-gradient(circle at top, ${withAlpha(primaryColor, 0.22)}, transparent 34%), linear-gradient(180deg, ${surfaceTint}, ${withAlpha(accentColor, 0.06)})`,
+      } as const;
+  const softPanelStyle = isDark
+    ? { borderColor: "rgba(255,255,255,0.1)", backgroundColor: "rgba(0,0,0,0.25)" } as const
+    : { borderColor: withAlpha(primaryColor, 0.18), backgroundColor: withAlpha(primaryColor, 0.08) } as const;
+  const highlightedPanelStyle = isDark
+    ? { borderColor: withAlpha(primaryColor, 0.4), backgroundColor: "rgba(0,0,0,0.3)" } as const
+    : { borderColor: withAlpha(primaryColor, 0.25), backgroundColor: withAlpha(primaryColor, 0.1) } as const;
   const primaryButtonStyle = {
     backgroundColor: primaryColor,
     borderColor: primaryColor,
     color: primaryTextColor,
   } as const;
   const accentIconStyle = { color: primaryColor } as const;
-  const brandBadgeStyle = {
-    borderColor: withAlpha(primaryColor, 0.3),
-    backgroundColor: withAlpha(primaryColor, 0.1),
-    color: accentColor,
-  } as const;
+  const brandBadgeStyle = isDark
+    ? { borderColor: withAlpha(primaryColor, 0.5), backgroundColor: withAlpha(primaryColor, 0.2), color: primaryColor } as const
+    : { borderColor: withAlpha(primaryColor, 0.3), backgroundColor: withAlpha(primaryColor, 0.1), color: accentColor } as const;
+  const cardStyle = isDark
+    ? { backgroundColor: "rgba(255,255,255,0.07)", borderColor: "rgba(255,255,255,0.12)" } as const
+    : {} as const;
+  const textStyle = isDark ? { color: "#ffffff" } as const : {} as const;
+  const mutedStyle = isDark ? { color: "rgba(255,255,255,0.6)" } as const : {} as const;
+  const inputStyle = isDark
+    ? { backgroundColor: "rgba(0,0,0,0.35)", borderColor: "rgba(255,255,255,0.15)", color: "#ffffff" } as const
+    : {} as const;
 
   const scrollToReservation = () => {
     reservationPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -424,7 +435,7 @@ const PublicBooking = () => {
     <div className="min-h-screen" style={pageStyle}>
       <div className="mx-auto max-w-7xl px-4 py-6 pb-28 sm:px-6 sm:py-8 xl:px-8 xl:pb-8">
         <div className="space-y-6">
-          <section className="overflow-hidden rounded-[2rem] border bg-background/90 shadow-sm backdrop-blur">
+          <section className="overflow-hidden rounded-[2rem] border bg-background/90 shadow-sm backdrop-blur" style={cardStyle}>
             <div className="grid gap-6 p-5 sm:p-6 xl:grid-cols-[minmax(0,1fr)_260px] xl:items-end">
               <div className="space-y-5">
                 <Badge variant="outline" className="gap-2 px-3 py-1 text-xs uppercase tracking-[0.24em]" style={brandBadgeStyle}>
@@ -446,58 +457,58 @@ const PublicBooking = () => {
                       </div>
                     </div>
                   ) : null}
-                  <h1 className="text-3xl font-bold tracking-tight sm:text-4xl xl:text-5xl">
+                  <h1 className="text-3xl font-bold tracking-tight sm:text-4xl xl:text-5xl" style={textStyle}>
                     {heroTitle}
                   </h1>
-                  <p className="max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
+                  <p className="max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base" style={mutedStyle}>
                     {heroSubtitle}
                   </p>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="rounded-2xl border p-4" style={softPanelStyle}>
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Available now</p>
-                    <p className="mt-2 text-2xl font-semibold">{propertyData ? availableRooms : "--"}</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground" style={mutedStyle}>Available now</p>
+                    <p className="mt-2 text-2xl font-semibold" style={textStyle}>{propertyData ? availableRooms : "--"}</p>
+                    <p className="text-xs text-muted-foreground" style={mutedStyle}>
                       {propertyData ? "Rooms matching the selected dates" : "Load a property to see inventory"}
                     </p>
                   </div>
                   <div className="rounded-2xl border p-4" style={softPanelStyle}>
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Stay length</p>
-                    <p className="mt-2 text-2xl font-semibold">{propertyData ? nights : "--"}</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground" style={mutedStyle}>Stay length</p>
+                    <p className="mt-2 text-2xl font-semibold" style={textStyle}>{propertyData ? nights : "--"}</p>
+                    <p className="text-xs text-muted-foreground" style={mutedStyle}>
                       {propertyData ? "Night(s) in your current search" : "Choose check-in and check-out"}
                     </p>
                   </div>
                   <div className="rounded-2xl border p-4" style={softPanelStyle}>
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Guest count</p>
-                    <p className="mt-2 text-2xl font-semibold">{search.guests}</p>
-                    <p className="text-xs text-muted-foreground">Capacity filter applied to each room</p>
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground" style={mutedStyle}>Guest count</p>
+                    <p className="mt-2 text-2xl font-semibold" style={textStyle}>{search.guests}</p>
+                    <p className="text-xs text-muted-foreground" style={mutedStyle}>Capacity filter applied to each room</p>
                   </div>
                 </div>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-                <div className="rounded-2xl border bg-background/80 p-4">
-                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Currency</p>
-                  <p className="mt-2 text-lg font-semibold">{propertyData?.property.currency || "INR"}</p>
+                <div className="rounded-2xl border bg-background/80 p-4" style={cardStyle}>
+                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground" style={mutedStyle}>Currency</p>
+                  <p className="mt-2 text-lg font-semibold" style={textStyle}>{propertyData?.property.currency || "INR"}</p>
                 </div>
-                <div className="rounded-2xl border bg-background/80 p-4">
-                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Timezone</p>
-                  <p className="mt-2 text-lg font-semibold">{propertyData?.property.timezone || "Asia/Kolkata"}</p>
+                <div className="rounded-2xl border bg-background/80 p-4" style={cardStyle}>
+                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground" style={mutedStyle}>Timezone</p>
+                  <p className="mt-2 text-lg font-semibold" style={textStyle}>{propertyData?.property.timezone || "Asia/Kolkata"}</p>
                 </div>
-                <div className="rounded-2xl border bg-background/80 p-4">
-                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Property slug</p>
-                  <p className="mt-2 break-all text-lg font-semibold">{propertyData?.property.slug || slugInput || "--"}</p>
+                <div className="rounded-2xl border bg-background/80 p-4" style={cardStyle}>
+                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground" style={mutedStyle}>Property slug</p>
+                  <p className="mt-2 break-all text-lg font-semibold" style={textStyle}>{propertyData?.property.slug || slugInput || "--"}</p>
                 </div>
               </div>
             </div>
           </section>
 
-          <section className="rounded-[2rem] border bg-background/90 p-5 shadow-sm backdrop-blur sm:p-6">
+          <section className="rounded-[2rem] border bg-background/90 p-5 shadow-sm backdrop-blur sm:p-6" style={cardStyle}>
             <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
               <div>
-                <p className="text-sm font-medium">Search availability</p>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm font-medium" style={textStyle}>Search availability</p>
+                <p className="text-sm text-muted-foreground" style={mutedStyle}>
                   Works on mobile as a stacked form and on desktop as a single booking control bar.
                 </p>
               </div>
@@ -512,7 +523,7 @@ const PublicBooking = () => {
 
             <div className="mt-5 grid gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.35fr)_repeat(3,minmax(0,1fr))]">
               <div className="space-y-2">
-                <Label htmlFor="property-slug">{resolvedByHost ? "Booking website" : "Property slug"}</Label>
+                <Label htmlFor="property-slug" style={mutedStyle}>{resolvedByHost ? "Booking website" : "Property slug"}</Label>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Input
                     id="property-slug"
@@ -521,6 +532,7 @@ const PublicBooking = () => {
                     placeholder={resolvedByHost ? "tenant host" : "for example demo-user"}
                     className="sm:flex-1"
                     readOnly={resolvedByHost}
+                    style={inputStyle}
                   />
                   <Button onClick={handleSearch} disabled={loading} className="w-full sm:w-auto">
                     <Search className="mr-2 h-4 w-4" />
@@ -530,29 +542,31 @@ const PublicBooking = () => {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="check-in">Check-in</Label>
+                <Label htmlFor="check-in" style={mutedStyle}>Check-in</Label>
                 <Input
                   id="check-in"
                   type="date"
                   value={search.check_in}
                   min={formatDate(new Date())}
                   onChange={(event) => setSearch((prev) => ({ ...prev, check_in: event.target.value }))}
+                  style={inputStyle}
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="check-out">Check-out</Label>
+                <Label htmlFor="check-out" style={mutedStyle}>Check-out</Label>
                 <Input
                   id="check-out"
                   type="date"
                   value={search.check_out}
                   min={search.check_in}
                   onChange={(event) => setSearch((prev) => ({ ...prev, check_out: event.target.value }))}
+                  style={inputStyle}
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="guests">Guests</Label>
+                <Label htmlFor="guests" style={mutedStyle}>Guests</Label>
                 <Input
                   id="guests"
                   type="number"
@@ -565,6 +579,7 @@ const PublicBooking = () => {
                       guests: Math.max(1, parseInt(event.target.value || "1", 10)),
                     }))
                   }
+                  style={inputStyle}
                 />
               </div>
             </div>
@@ -573,9 +588,9 @@ const PublicBooking = () => {
           {propertyData ? (
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
               <div className="space-y-4">
-                <Card className="rounded-[2rem] border bg-background/90 shadow-sm">
+                <Card className="rounded-[2rem] border bg-background/90 shadow-sm" style={cardStyle}>
                   <CardHeader className="space-y-3">
-                    <CardTitle className="flex flex-wrap items-center gap-2 text-2xl">
+                    <CardTitle className="flex flex-wrap items-center gap-2 text-2xl" style={textStyle}>
                       <CalendarDays className="h-5 w-5 text-primary" />
                       Available rooms
                     </CardTitle>
@@ -682,9 +697,9 @@ const PublicBooking = () => {
               </div>
 
               <div ref={reservationPanelRef} className="space-y-4 xl:sticky xl:top-6">
-                <Card className="rounded-[2rem] border bg-background/90 shadow-sm">
+                <Card className="rounded-[2rem] border bg-background/90 shadow-sm" style={cardStyle}>
                   <CardHeader>
-                    <CardTitle>Property details</CardTitle>
+                    <CardTitle style={textStyle}>Property details</CardTitle>
                     <CardDescription>
                       {resolvedByHost
                         ? "This booking site is resolved from the current host."
@@ -722,9 +737,9 @@ const PublicBooking = () => {
                   </CardContent>
                 </Card>
 
-                <Card className="rounded-[2rem] border bg-background/90 shadow-sm">
+                <Card className="rounded-[2rem] border bg-background/90 shadow-sm" style={cardStyle}>
                   <CardHeader>
-                    <CardTitle>{selectedRoom ? `Reserve ${selectedRoom.name}` : "Reservation form"}</CardTitle>
+                    <CardTitle style={textStyle}>{selectedRoom ? `Reserve ${selectedRoom.name}` : "Reservation form"}</CardTitle>
                     <CardDescription>
                       {selectedRoom
                         ? "Submit your details to create a pending reservation request."
@@ -750,17 +765,18 @@ const PublicBooking = () => {
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="guest-name">Full name</Label>
+                          <Label htmlFor="guest-name" style={mutedStyle}>Full name</Label>
                           <Input
                             id="guest-name"
                             value={bookingForm.guest_name}
                             onChange={(event) =>
                               setBookingForm((prev) => ({ ...prev, guest_name: event.target.value }))
                             }
+                            style={inputStyle}
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="guest-email">Email</Label>
+                          <Label htmlFor="guest-email" style={mutedStyle}>Email</Label>
                           <Input
                             id="guest-email"
                             type="email"
@@ -768,20 +784,22 @@ const PublicBooking = () => {
                             onChange={(event) =>
                               setBookingForm((prev) => ({ ...prev, guest_email: event.target.value }))
                             }
+                            style={inputStyle}
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="guest-phone">Phone</Label>
+                          <Label htmlFor="guest-phone" style={mutedStyle}>Phone</Label>
                           <Input
                             id="guest-phone"
                             value={bookingForm.guest_phone}
                             onChange={(event) =>
                               setBookingForm((prev) => ({ ...prev, guest_phone: event.target.value }))
                             }
+                            style={inputStyle}
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="guest-notes">Special requests</Label>
+                          <Label htmlFor="guest-notes" style={mutedStyle}>Special requests</Label>
                           <Textarea
                             id="guest-notes"
                             value={bookingForm.notes}
@@ -789,6 +807,7 @@ const PublicBooking = () => {
                               setBookingForm((prev) => ({ ...prev, notes: event.target.value }))
                             }
                             placeholder="Arrival time, preferences, add-on requests..."
+                            style={inputStyle}
                           />
                         </div>
                         <Button
@@ -837,8 +856,8 @@ const PublicBooking = () => {
               </div>
             </div>
           ) : (
-            <Card className="rounded-[2rem] border bg-background/90 shadow-sm">
-              <CardContent className="px-6 py-14 text-center text-sm text-muted-foreground">
+            <Card className="rounded-[2rem] border bg-background/90 shadow-sm" style={cardStyle}>
+              <CardContent className="px-6 py-14 text-center text-sm text-muted-foreground" style={mutedStyle}>
                 {loading
                   ? "Loading property availability..."
                   : "Open a property by slug or visit a tenant booking host to search rooms and accept bookings."}
@@ -848,7 +867,7 @@ const PublicBooking = () => {
         </div>
 
         {selectedRoom ? (
-          <div className="fixed inset-x-3 bottom-3 z-20 rounded-2xl border bg-background/95 p-3 shadow-lg backdrop-blur xl:hidden">
+          <div className="fixed inset-x-3 bottom-3 z-20 rounded-2xl border bg-background/95 p-3 shadow-lg backdrop-blur xl:hidden" style={cardStyle}>
             <div className="flex items-center gap-3">
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold">{selectedRoom.name}</p>

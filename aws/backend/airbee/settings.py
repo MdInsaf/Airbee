@@ -31,8 +31,7 @@ DATABASES = {
         "NAME": os.environ.get("DB_NAME", "airbee"),
         "USER": os.environ.get("DB_USER", "airbee"),
         "PASSWORD": os.environ.get("DB_PASSWORD", "airbee123"),
-        # No SSL locally; required on AWS RDS
-        "OPTIONS": {} if LOCAL_DEV else {"sslmode": "require"},
+        "OPTIONS": {"sslmode": "require"},
         "CONN_MAX_AGE": 60,
     }
 }
