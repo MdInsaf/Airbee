@@ -21,8 +21,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install setuptools
+        run: pip install setuptools wheel
+
       - name: Install dependencies
-        run: pip install setuptools zappa psycopg2-binary -r requirements.txt
+        run: pip install zappa psycopg2-binary -r requirements.txt
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
