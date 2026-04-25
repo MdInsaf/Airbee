@@ -69,6 +69,16 @@ const Bookings = () => {
 
   useEffect(() => { fetchData(); }, [tenantId]);
 
+  const handlePaymentUpdate = async (bookingId: string, newPaymentStatus: string) => {
+    try {
+      await api.put(`/api/bookings/${bookingId}`, { payment_status: newPaymentStatus });
+      setBookings(prev => prev.map(b => b.id === bookingId ? { ...b, payment_status: newPaymentStatus } : b));
+      toast({ title: "Payment status updated" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  };
+
   const handleCreate = async () => {
     if (!tenantId || !form.guest_name || !form.room_id || !form.check_in || !form.check_out) return;
     try {
@@ -225,7 +235,18 @@ const Bookings = () => {
                     <TableCell>{formatDate(b.check_out)}</TableCell>
                     <TableCell className="font-medium">{formatCurrency(b.total_amount)}</TableCell>
                     <TableCell>{statusBadge(b.status)}</TableCell>
-                    <TableCell>{paymentBadge(b.payment_status)}</TableCell>
+                    <TableCell>
+                      <Select value={b.payment_status} onValueChange={(v) => handlePaymentUpdate(b.id, v)}>
+                        <SelectTrigger className="h-7 w-24 text-xs border-0 p-0 shadow-none focus:ring-0">
+                          <SelectValue>{paymentBadge(b.payment_status)}</SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="unpaid">unpaid</SelectItem>
+                          <SelectItem value="partial">partial</SelectItem>
+                          <SelectItem value="paid">paid</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
