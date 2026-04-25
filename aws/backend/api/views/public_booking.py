@@ -371,7 +371,7 @@ def _create_booking(property_data, request):
             VALUES (
                 %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s,
-                %s, %s, 'pending', 'unpaid', %s
+                %s, %s, 'pending'::booking_status, 'unpaid'::payment_status, %s
             )
             RETURNING id, guest_name, guest_email, guest_phone, check_in, check_out,
                       guests, total_amount, base_amount, tax_amount, service_charge,
