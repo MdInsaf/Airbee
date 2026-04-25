@@ -21,11 +21,23 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install setuptools
-        run: pip install setuptools wheel
+      - name: Install dependencies into package/
+        run: |
+          pip install -r requirements.txt \
+            --platform manylinux2014_x86_64 \
+            --only-binary=:all: \
+            --python-version 3.12 \
+            --implementation cp \
+            -t package/
 
-      - name: Install dependencies
-        run: pip install zappa psycopg2-binary -r requirements.txt
+      - name: Copy source files
+        run: |
+          cp -r airbee package/
+          cp -r api package/
+          cp lambda_handler.py package/
+
+      - name: Zip package
+        run: cd package && zip -r ../function.zip . && cd ..
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -34,8 +46,25 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
 
-      - name: Deploy platform API
-        run: zappa update platform
+      - name: Upload to S3
+        run: aws s3 cp function.zip s3://airbee-zappa-132334512551-ap-south-1/function.zip
 
-      - name: Deploy booking API
-        run: zappa update booking
+      - name: Update Lambda functions
+        run: |
+          aws lambda update-function-code \
+            --function-name airbee-platform-api \
+            --s3-bucket airbee-zappa-132334512551-ap-south-1 \
+            --s3-key function.zip \
+            --region ap-south-1 \
+            --query "FunctionArn" --output text
+
+          aws lambda wait function-updated \
+            --function-name airbee-platform-api \
+            --region ap-south-1
+
+          aws lambda update-function-code \
+            --function-name airbee-booking-api \
+            --s3-bucket airbee-zappa-132334512551-ap-south-1 \
+            --s3-key function.zip \
+            --region ap-south-1 \
+            --query "FunctionArn" --output text
