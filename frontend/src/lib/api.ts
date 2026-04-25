@@ -20,7 +20,7 @@ function buildApiUrl(path: string) {
   return `${API_URL}${normalizedPath}`;
 }
 
-const API_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_URL);
+const API_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_URL || "https://fu6frsnvui.execute-api.ap-south-1.amazonaws.com");
 const LOCAL_DEV = import.meta.env.VITE_LOCAL_DEV === "true";
 const AUTH_CACHE_BUFFER_MS = 30_000;
 

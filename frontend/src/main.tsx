@@ -4,8 +4,8 @@ import App from "./App.tsx";
 import { RootErrorBoundary } from "@/components/RootErrorBoundary";
 import "./index.css";
 
-const userPoolId = import.meta.env.VITE_COGNITO_USER_POOL_ID;
-const userPoolClientId = import.meta.env.VITE_COGNITO_CLIENT_ID;
+const userPoolId = import.meta.env.VITE_COGNITO_USER_POOL_ID || "ap-south-1_XaPmqKaR4";
+const userPoolClientId = import.meta.env.VITE_COGNITO_CLIENT_ID || "3cpce14mrt8c041l6epv4tiv2k";
 const rootElement = document.getElementById("root");
 
 if (!rootElement) {
