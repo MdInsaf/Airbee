@@ -1,7 +1,8 @@
 import {
   LayoutDashboard, CalendarDays, BedDouble, Users, Megaphone, BarChart3,
   Settings, MessageSquare, LogOut, Hexagon, Bot, Brain, Zap,
-  UserCheck, MessageCircleHeart, ShieldAlert, Globe2,
+  UserCheck, MessageCircleHeart, ShieldAlert, Globe2, Calendar,
+  CreditCard, Tag, UserCog, Wrench, Receipt, Shield,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -16,8 +17,18 @@ import { Button } from "@/components/ui/button";
 const mainNav = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { title: "Bookings", url: "/admin/bookings", icon: CalendarDays },
+  { title: "Calendar", url: "/admin/calendar", icon: Calendar },
   { title: "Rooms", url: "/admin/rooms", icon: BedDouble },
   { title: "Guests", url: "/admin/guests", icon: Users },
+];
+
+const operationsNav = [
+  { title: "Payments & Invoices", url: "/admin/payments", icon: CreditCard },
+  { title: "Pricing Rules", url: "/admin/pricing-rules", icon: Tag },
+  { title: "Housekeeping", url: "/admin/housekeeping", icon: BedDouble },
+  { title: "Maintenance", url: "/admin/maintenance", icon: Wrench },
+  { title: "Expenses", url: "/admin/expenses", icon: Receipt },
+  { title: "Staff", url: "/admin/staff", icon: UserCog },
 ];
 
 const aiNav = [
@@ -37,6 +48,7 @@ const marketingNav = [
 
 const systemNav = [
   { title: "Reports", url: "/admin/reports", icon: BarChart3 },
+  { title: "Audit Log", url: "/admin/audit-log", icon: Shield },
   { title: "Settings", url: "/admin/settings", icon: Settings },
 ];
 
@@ -83,6 +95,10 @@ export function AdminSidebar() {
         <SidebarGroup>
           <SidebarGroupLabel>Main</SidebarGroupLabel>
           <SidebarGroupContent><SidebarMenu>{renderItems(mainNav)}</SidebarMenu></SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Operations</SidebarGroupLabel>
+          <SidebarGroupContent><SidebarMenu>{renderItems(operationsNav)}</SidebarMenu></SidebarGroupContent>
         </SidebarGroup>
         <SidebarGroup>
           <SidebarGroupLabel>AI Intelligence</SidebarGroupLabel>

@@ -102,6 +102,7 @@ class BookingList(APIView):
         if payment_status not in ALLOWED_PAYMENT_STATUS:
             return Response({"error": "Invalid payment status"}, status=status.HTTP_400_BAD_REQUEST)
 
+        booking_source = str(d.get("booking_source") or "direct").strip()
         booking_id = str(uuid.uuid4())
         with transaction.atomic(), connection.cursor() as cur:
             cur.execute(
@@ -162,7 +163,7 @@ class BookingList(APIView):
                     guest_name, guest_email, guest_phone,
                     check_in, check_out, guests,
                     total_amount, base_amount,
-                    status, payment_status, notes
+                    status, payment_status, notes, booking_source
                 )
                 VALUES (
                     %s,%s,%s,%s,
@@ -171,7 +172,7 @@ class BookingList(APIView):
                     COALESCE(%s,0), COALESCE(%s,0),
                     COALESCE(%s,'pending')::booking_status,
                     COALESCE(%s,'unpaid')::payment_status,
-                    %s
+                    %s, COALESCE(%s,'direct')
                 )
                 RETURNING id, tenant_id, room_id, guest_id, guest_name, guest_email, guest_phone,
                           check_in, check_out, guests, total_amount, base_amount, tax_amount,
@@ -186,6 +187,7 @@ class BookingList(APIView):
                     total_amount, total_amount,
                     booking_status, payment_status,
                     d.get("notes"),
+                    booking_source,
                 ],
             )
             cols = [c[0] for c in cur.description]

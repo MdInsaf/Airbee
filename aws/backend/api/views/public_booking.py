@@ -366,12 +366,13 @@ def _create_booking(property_data, request):
             INSERT INTO bookings (
                 id, tenant_id, room_id, guest_name, guest_email, guest_phone,
                 check_in, check_out, guests, total_amount, base_amount,
-                tax_amount, service_charge, status, payment_status, notes
+                tax_amount, service_charge, status, payment_status, notes, booking_source
             )
             VALUES (
                 %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s,
-                %s, %s, 'pending'::booking_status, 'unpaid'::payment_status, %s
+                %s, %s, 'pending'::booking_status, 'unpaid'::payment_status, %s,
+                COALESCE(%s, 'online')
             )
             RETURNING id, guest_name, guest_email, guest_phone, check_in, check_out,
                       guests, total_amount, base_amount, tax_amount, service_charge,
@@ -392,10 +393,25 @@ def _create_booking(property_data, request):
                 pricing["tax_amount"],
                 pricing["service_charge"],
                 notes or None,
+                payload.get("booking_source") or "online",
             ],
         )
         booking_cols = [c[0] for c in cur.description]
         booking = _serialize(cur.fetchone(), booking_cols)
+
+        # Fire notification (best-effort)
+        try:
+            from api.views.notifications import create_notification
+            create_notification(
+                property_data["id"],
+                "new_booking",
+                f"New booking from {guest_name}",
+                f"Room: {room.get('name')} | Check-in: {check_in} | Amount: {pricing['total_amount']}",
+                related_id=booking_id,
+                related_type="booking",
+            )
+        except Exception:
+            pass
 
     return Response(
         {
@@ -464,3 +480,46 @@ class PublicSiteBookingCreateView(APIView):
         if not property_data.get("booking_site_enabled", True):
             return _booking_site_disabled_response()
         return _create_booking(property_data, request)
+
+
+class PublicBookingLookup(APIView):
+    """GET /public/booking-lookup?email=&booking_id=  — guest portal self-service"""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        email = (request.GET.get("email") or "").strip().lower()
+        booking_id = (request.GET.get("booking_id") or "").strip()
+        if not email:
+            return Response({"error": "email is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        with connection.cursor() as cur:
+            params = [email]
+            extra = ""
+            if booking_id:
+                extra = " AND b.id = %s"
+                params.append(booking_id)
+            cur.execute(
+                f"""
+                SELECT b.id, b.guest_name, b.guest_email, b.guest_phone,
+                       b.check_in, b.check_out, b.guests, b.status, b.payment_status,
+                       b.total_amount, b.base_amount, b.tax_amount, b.service_charge,
+                       b.amount_paid, b.notes, b.created_at,
+                       r.name AS room_name,
+                       r.check_in_time, r.check_out_time, r.cancellation_policy,
+                       t.name AS property_name, t.contact_email, t.contact_phone,
+                       t.address, t.currency
+                FROM bookings b
+                JOIN tenants t ON t.id = b.tenant_id
+                LEFT JOIN rooms r ON r.id = b.room_id
+                WHERE lower(b.guest_email) = %s{extra}
+                ORDER BY b.created_at DESC
+                LIMIT 10
+                """,
+                params,
+            )
+            cols = [c[0] for c in cur.description]
+            rows = [_serialize(row, cols) for row in cur.fetchall()]
+
+        if not rows:
+            return Response({"error": "No bookings found for this email"}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"bookings": rows})

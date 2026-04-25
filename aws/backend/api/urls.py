@@ -1,15 +1,24 @@
 from django.urls import path
 from api.views import (
+    audit_log,
     bookings,
     channels,
     dashboard,
     demo_seed,
+    expenses,
     guests,
     housekeeping,
+    maintenance,
     marketing,
     messaging,
+    notifications,
+    payments,
+    pricing_rules,
+    reports,
     rooms,
     settings_view,
+    staff,
+    waitlist,
 )
 
 urlpatterns = [
@@ -24,6 +33,13 @@ urlpatterns = [
     path("bookings", bookings.BookingList.as_view()),
     path("bookings/<str:booking_id>", bookings.BookingDetail.as_view()),
 
+    # Payments per booking
+    path("bookings/<str:booking_id>/payments", payments.BookingPaymentList.as_view()),
+
+    # Invoices
+    path("invoices", payments.InvoiceList.as_view()),
+    path("invoices/<str:invoice_id>", payments.InvoiceDetail.as_view()),
+
     # Guests
     path("guests", guests.GuestList.as_view()),
     path("guests/<str:guest_id>", guests.GuestDetail.as_view()),
@@ -31,6 +47,38 @@ urlpatterns = [
     # Housekeeping
     path("housekeeping", housekeeping.HousekeepingList.as_view()),
     path("housekeeping/<str:room_id>", housekeeping.HousekeepingDetail.as_view()),
+
+    # Pricing Rules
+    path("pricing-rules", pricing_rules.PricingRuleList.as_view()),
+    path("pricing-rules/<str:rule_id>", pricing_rules.PricingRuleDetail.as_view()),
+
+    # Staff
+    path("staff", staff.StaffList.as_view()),
+    path("staff/<str:staff_id>", staff.StaffDetail.as_view()),
+
+    # Maintenance
+    path("maintenance", maintenance.MaintenanceList.as_view()),
+    path("maintenance/<str:req_id>", maintenance.MaintenanceDetail.as_view()),
+
+    # Expenses
+    path("expenses", expenses.ExpenseList.as_view()),
+    path("expenses/<str:expense_id>", expenses.ExpenseDetail.as_view()),
+
+    # Reports
+    path("reports/summary", reports.ReportsSummary.as_view()),
+    path("reports/gst", reports.GSTReport.as_view()),
+    path("reports/export/bookings", reports.ExportBookings.as_view()),
+
+    # Notifications
+    path("notifications", notifications.NotificationList.as_view()),
+    path("notifications/<str:notification_id>/read", notifications.NotificationMarkRead.as_view()),
+
+    # Audit Log
+    path("audit-logs", audit_log.AuditLogList.as_view()),
+
+    # Waitlist (admin)
+    path("waitlist", waitlist.WaitlistList.as_view()),
+    path("waitlist/<str:waitlist_id>", waitlist.WaitlistDetail.as_view()),
 
     # Settings
     path("settings", settings_view.SettingsView.as_view()),
