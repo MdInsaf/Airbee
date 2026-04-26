@@ -199,6 +199,7 @@ class BookingDetail(APIView):
     def put(self, request, booking_id):
         tenant_id = request.user.tenant_id
         d = request.data
+        new_status = d.get("status")
         with connection.cursor() as cur:
             cur.execute(
                 """
@@ -224,4 +225,40 @@ class BookingDetail(APIView):
             if not row:
                 return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
             cols = [c[0] for c in cur.description]
-        return Response(_serialize(row, cols))
+            booking = _serialize(row, cols)
+
+        if new_status == "confirmed":
+            try:
+                from api.views.email_utils import send_booking_confirmed_email
+                with connection.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT r.name, t.name, t.contact_email, t.contact_phone,
+                               t.address, t.currency, t.primary_hostname
+                        FROM bookings b
+                        LEFT JOIN rooms r ON r.id = b.room_id
+                        JOIN tenants t ON t.id = b.tenant_id
+                        WHERE b.id = %s
+                        """,
+                        [booking_id],
+                    )
+                    meta = cur.fetchone()
+                if meta:
+                    room_name, prop_name, c_email, c_phone, address, currency, hostname = meta
+                    send_booking_confirmed_email(
+                        tenant_id,
+                        booking=booking,
+                        room_name=room_name or "—",
+                        property_data={
+                            "name": prop_name or "",
+                            "contact_email": c_email or "",
+                            "contact_phone": c_phone or "",
+                            "address": address or "",
+                            "currency": currency or "INR",
+                            "primary_hostname": hostname or "",
+                        },
+                    )
+            except Exception:
+                pass
+
+        return Response(booking)

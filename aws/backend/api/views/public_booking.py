@@ -413,6 +413,19 @@ def _create_booking(property_data, request):
         except Exception:
             pass
 
+        # Send booking request email (best-effort, outside transaction)
+        try:
+            from api.views.email_utils import send_booking_request_email
+            send_booking_request_email(
+                property_data["id"],
+                booking=booking,
+                room=room,
+                pricing=pricing,
+                property_data=property_data,
+            )
+        except Exception:
+            pass
+
     return Response(
         {
             "message": "Reservation request created successfully",
