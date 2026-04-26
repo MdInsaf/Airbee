@@ -251,30 +251,18 @@ def _send_ses(*, to_email: str, subject: str, html_body: str, from_email: str | 
         return False
 
 
-def _log_email(tenant_id: str, *, to_email: str, to_name: str, subject: str, content: str, status: str) -> None:
+def _log_email(tenant_id: str, *, to_email: str, email_type: str, subject: str, status: str) -> None:
     try:
         with connection.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO email_logs (id, tenant_id, recipient_email, recipient_name, subject, body, status, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
-                ON CONFLICT DO NOTHING
+                INSERT INTO email_logs (id, tenant_id, email_type, recipient, subject, status)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                [str(uuid.uuid4()), tenant_id, to_email, to_name, subject, content, status],
+                [str(uuid.uuid4()), tenant_id, email_type, to_email, subject, status],
             )
     except Exception:
-        try:
-            # Fallback: log to message_logs if email_logs schema differs
-            with connection.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO message_logs (id, tenant_id, channel, source, recipient_name, recipient_email, subject, content, status)
-                    VALUES (%s, %s, 'email', 'booking_trigger', %s, %s, %s, %s, %s)
-                    """,
-                    [str(uuid.uuid4()), tenant_id, to_name, to_email, subject, content[:500], status],
-                )
-        except Exception:
-            pass
+        pass
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -305,14 +293,7 @@ def send_booking_request_email(
 
     bcc = [ADMIN_NOTIFY_EMAIL] if ADMIN_NOTIFY_EMAIL else []
     sent = _send_ses(to_email=guest_email, subject=subject, html_body=html, bcc_emails=bcc)
-    _log_email(
-        tenant_id,
-        to_email=guest_email,
-        to_name=booking.get("guest_name", "Guest"),
-        subject=subject,
-        content=body,
-        status="sent" if sent else "failed",
-    )
+    _log_email(tenant_id, to_email=guest_email, email_type="booking_request", subject=subject, status="sent" if sent else "failed")
 
 
 def send_booking_confirmed_email(
@@ -339,11 +320,4 @@ def send_booking_confirmed_email(
     )
 
     sent = _send_ses(to_email=guest_email, subject=subject, html_body=html)
-    _log_email(
-        tenant_id,
-        to_email=guest_email,
-        to_name=booking.get("guest_name", "Guest"),
-        subject=subject,
-        content=body,
-        status="sent" if sent else "failed",
-    )
+    _log_email(tenant_id, to_email=guest_email, email_type="booking_confirmed", subject=subject, status="sent" if sent else "failed")
