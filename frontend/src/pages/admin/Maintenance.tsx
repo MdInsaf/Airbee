@@ -19,7 +19,7 @@ interface Room { id: string; name: string; }
 const PRIORITY_COLORS: Record<string, string> = { urgent: "bg-red-100 text-red-700", high: "bg-orange-100 text-orange-700", normal: "bg-blue-100 text-blue-700", low: "bg-gray-100 text-gray-600" };
 const STATUS_COLORS: Record<string, string> = { open: "bg-red-100 text-red-700", in_progress: "bg-yellow-100 text-yellow-700", resolved: "bg-green-100 text-green-700", closed: "bg-gray-100 text-gray-600" };
 
-const emptyForm = { title: "", description: "", priority: "normal", room_id: "", reported_by: "" };
+const emptyForm = { title: "", description: "", priority: "normal", room_id: "_general", reported_by: "" };
 
 const Maintenance = () => {
   const { tenantId } = useAuth();
@@ -45,7 +45,7 @@ const Maintenance = () => {
   const handleCreate = async () => {
     if (!form.title.trim()) { toast({ title: "Title required", variant: "destructive" }); return; }
     try {
-      await api.post("/api/maintenance", form);
+      await api.post("/api/maintenance", { ...form, room_id: form.room_id === "_general" ? "" : form.room_id });
       toast({ title: "Request submitted" });
       setDialog(false);
       setForm(emptyForm);
@@ -149,7 +149,7 @@ const Maintenance = () => {
                 <Select value={form.room_id} onValueChange={v => setForm(f => ({ ...f, room_id: v }))}>
                   <SelectTrigger><SelectValue placeholder="Select room" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">General / Common Area</SelectItem>
+                    <SelectItem value="_general">General / Common Area</SelectItem>
                     {rooms.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
                   </SelectContent>
                 </Select>

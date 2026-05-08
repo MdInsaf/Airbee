@@ -536,3 +536,40 @@ class PublicBookingLookup(APIView):
         if not rows:
             return Response({"error": "No bookings found for this email"}, status=status.HTTP_404_NOT_FOUND)
         return Response({"bookings": rows})
+
+
+class PublicBookingCancelView(APIView):
+    """POST /public/bookings/{booking_id}/cancel — guest self-service cancellation"""
+    permission_classes = [AllowAny]
+
+    def post(self, request, booking_id):
+        email = (request.data.get("email") or "").strip().lower()
+        if not email:
+            return Response({"error": "email is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT id, status, guest_email FROM bookings WHERE id = %s",
+                [str(booking_id)],
+            )
+            row = cur.fetchone()
+
+        if not row:
+            return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        _id, booking_status, booking_email = row
+        if (booking_email or "").strip().lower() != email:
+            return Response({"error": "Email does not match this booking"}, status=status.HTTP_403_FORBIDDEN)
+        if booking_status != "pending":
+            return Response(
+                {"error": f"Cannot cancel a booking with status '{booking_status}'"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with connection.cursor() as cur:
+            cur.execute(
+                "UPDATE bookings SET status = 'cancelled', updated_at = NOW() WHERE id = %s",
+                [str(booking_id)],
+            )
+
+        return Response({"message": "Booking cancelled successfully"})

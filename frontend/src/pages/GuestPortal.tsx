@@ -7,7 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/format";
-import { Search, CalendarDays, MapPin, Phone, Mail } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { Search, MapPin, Phone, Mail, XCircle } from "lucide-react";
 
 interface Booking {
   id: string; guest_name: string; guest_email: string;
@@ -41,11 +42,27 @@ const fmt = (iso: string) => {
 };
 
 const GuestPortal = () => {
+  const { toast } = useToast();
   const [email, setEmail] = useState("");
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [searched, setSearched] = useState(false);
+  const [cancelling, setCancelling] = useState<string | null>(null);
+
+  const handleCancel = async (bookingId: string) => {
+    if (!window.confirm("Are you sure you want to cancel this booking? This cannot be undone.")) return;
+    setCancelling(bookingId);
+    try {
+      await api.publicPost(`/public/bookings/${bookingId}/cancel`, { email: email.trim().toLowerCase() });
+      setBookings(prev => prev.map(b => b.id === bookingId ? { ...b, status: "cancelled" } : b));
+      toast({ title: "Booking cancelled" });
+    } catch (err: any) {
+      toast({ title: "Cancellation failed", description: err.message || "Could not cancel the booking.", variant: "destructive" });
+    } finally {
+      setCancelling(null);
+    }
+  };
 
   const handleSearch = async () => {
     if (!email.trim()) return;
@@ -185,7 +202,21 @@ const GuestPortal = () => {
                       Cancellation: {b.cancellation_policy}
                     </p>
                   )}
-                  <p className="text-xs text-muted-foreground">Booking ID: <span className="font-mono">{b.id.slice(0, 8).toUpperCase()}</span> · Booked on {fmt(b.created_at)}</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">Booking ID: <span className="font-mono">{b.id.slice(0, 8).toUpperCase()}</span> · Booked on {fmt(b.created_at)}</p>
+                    {b.status === "pending" && (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => handleCancel(b.id)}
+                        disabled={cancelling === b.id}
+                        className="shrink-0"
+                      >
+                        <XCircle className="w-3.5 h-3.5 mr-1.5" />
+                        {cancelling === b.id ? "Cancelling..." : "Cancel"}
+                      </Button>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             ))}

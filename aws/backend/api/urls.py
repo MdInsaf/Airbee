@@ -68,6 +68,9 @@ urlpatterns = [
     path("reports/summary", reports.ReportsSummary.as_view()),
     path("reports/gst", reports.GSTReport.as_view()),
     path("reports/export/bookings", reports.ExportBookings.as_view()),
+    path("reports/export/guests", reports.ExportGuests.as_view()),
+    path("reports/export/expenses", reports.ExportExpenses.as_view()),
+    path("reports/export/gst", reports.ExportGSTCsv.as_view()),
 
     # Notifications
     path("notifications", notifications.NotificationList.as_view()),

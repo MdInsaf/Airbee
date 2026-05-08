@@ -20,13 +20,13 @@ const AuditLog = () => {
   const { tenantId } = useAuth();
   const [logs, setLogs] = useState<Log[]>([]);
   const [loading, setLoading] = useState(true);
-  const [entityType, setEntityType] = useState("");
+  const [entityType, setEntityType] = useState("all");
 
   const fetchData = async () => {
     if (!tenantId) return;
     setLoading(true);
     try {
-      const params = entityType ? `?entity_type=${entityType}` : "";
+      const params = entityType !== "all" ? `?entity_type=${entityType}` : "";
       const data = await api.get<Log[]>(`/api/audit-logs${params}`);
       setLogs(data || []);
     } finally { setLoading(false); }
@@ -44,7 +44,7 @@ const AuditLog = () => {
         <Select value={entityType} onValueChange={setEntityType}>
           <SelectTrigger className="w-40"><SelectValue placeholder="All types" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All types</SelectItem>
+            <SelectItem value="all">All types</SelectItem>
             {["bookings", "rooms", "guests", "payments", "settings"].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
           </SelectContent>
         </Select>

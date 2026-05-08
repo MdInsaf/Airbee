@@ -43,13 +43,25 @@ REST_FRAMEWORK = {
     "UNAUTHENTICATED_TOKEN": None,
 }
 
-CORS_ALLOW_ALL_ORIGINS = True
+API_SURFACE = os.environ.get("AIRBEE_API_SURFACE", "all").strip().lower()
+
+# Platform surface: restrict CORS to known admin domains + local dev.
+# Public/booking surface: allow all origins (serves guests on arbitrary custom domains).
+if API_SURFACE == "platform":
+    _platform_hosts = [h.strip() for h in os.environ.get("PLATFORM_HOSTS", "").split(",") if h.strip()]
+    CORS_ALLOWED_ORIGINS = (
+        [f"https://{h}" for h in _platform_hosts]
+        + ["http://localhost:5173", "http://localhost:3000"]
+    )
+    CORS_ALLOW_ALL_ORIGINS = False
+else:
+    CORS_ALLOW_ALL_ORIGINS = True
+
 CORS_ALLOW_HEADERS = ["authorization", "content-type"]
 
 COGNITO_USER_POOL_ID = os.environ.get("COGNITO_USER_POOL_ID", "")
-COGNITO_REGION = os.environ.get("AWS_REGION", "us-east-1")
-BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
-API_SURFACE = os.environ.get("AIRBEE_API_SURFACE", "all").strip().lower()
+COGNITO_REGION = os.environ.get("AWS_REGION", "ap-south-1")
+BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "ap-south-1")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 USE_TZ = True

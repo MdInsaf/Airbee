@@ -1,10 +1,10 @@
-﻿/**
- * AIR BEE â€” AI Forecast Lambda
+/**
+ * AIR BEE — AI Forecast Lambda
  * Replaces Supabase edge function ai-forecast.
  * Uses Amazon Bedrock (Claude 3.5 Haiku) for AIR BEE Bedrock integration.
  *
  * API Gateway route: POST /ai/forecast
- * Env vars: DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, BEDROCK_REGION
+ * Env vars: DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, BEDROCK_REGION, BEDROCK_MODEL_ID
  */
 
 import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
@@ -22,14 +22,23 @@ const pool = new Pool({
 });
 
 const bedrock = new BedrockRuntimeClient({
-  region: process.env.BEDROCK_REGION || "us-east-1",
+  region: process.env.BEDROCK_REGION || "ap-south-1",
 });
+const MODEL_ID = process.env.BEDROCK_MODEL_ID || "anthropic.claude-3-5-haiku-20241022-v1:0";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Authorization, Content-Type",
   "Content-Type": "application/json",
 };
+
+function nextSixMonths() {
+  const now = new Date();
+  return Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+}
 
 export const handler = async (event) => {
   if (event.requestContext?.http?.method === "OPTIONS") {
@@ -54,25 +63,25 @@ export const handler = async (event) => {
 
     const bookings = bookingsRes.rows;
     const rooms = roomsRes.rows;
+    const forecastMonths = nextSixMonths();
+    const exampleMonths = forecastMonths
+      .map((m) => `{"month": "${m}", "predicted_occupancy": 0, "predicted_revenue": 0, "confidence": 0.0}`)
+      .join(",\n    ");
 
     const prompt = `You are an AI demand forecasting engine for a hotel property. Analyze the booking data and generate a forecast.
 
 PROPERTY DATA:
 - Total Rooms: ${rooms.length}
-- Room Prices: ${rooms.map((r) => `${r.name}: â‚¹${r.base_price}`).join(", ")}
+- Room Prices: ${rooms.map((r) => `${r.name}: ₹${r.base_price}`).join(", ")}
 
 HISTORICAL BOOKINGS (${bookings.length} total):
-${bookings.slice(-100).map((b) => `${b.check_in} to ${b.check_out}: â‚¹${b.total_amount}, ${b.guests} guests`).join("\n")}
+${bookings.slice(-100).map((b) => `${b.check_in} to ${b.check_out}: ₹${b.total_amount}, ${b.guests} guests`).join("\n")}
 
-Generate a JSON response with this EXACT structure (no markdown, just JSON):
+Generate a JSON response with this EXACT structure (no markdown, just JSON). Produce real predictions for these upcoming months: ${forecastMonths.join(", ")}
+
 {
   "monthly_forecast": [
-    {"month": "2026-03", "predicted_occupancy": 65, "predicted_revenue": 150000, "confidence": 0.8},
-    {"month": "2026-04", "predicted_occupancy": 72, "predicted_revenue": 180000, "confidence": 0.75},
-    {"month": "2026-05", "predicted_occupancy": 80, "predicted_revenue": 220000, "confidence": 0.7},
-    {"month": "2026-06", "predicted_occupancy": 85, "predicted_revenue": 250000, "confidence": 0.65},
-    {"month": "2026-07", "predicted_occupancy": 78, "predicted_revenue": 200000, "confidence": 0.6},
-    {"month": "2026-08", "predicted_occupancy": 70, "predicted_revenue": 170000, "confidence": 0.55}
+    ${exampleMonths}
   ],
   "demand_signals": [
     {"signal": "Weekend demand is 30% higher than weekdays", "impact": "high"},
@@ -93,7 +102,7 @@ Base predictions on actual data patterns. If insufficient data, use reasonable d
 
     const response = await bedrock.send(
       new InvokeModelCommand({
-        modelId: "anthropic.claude-3-5-haiku-20241022-v1:0",
+        modelId: MODEL_ID,
         contentType: "application/json",
         accept: "application/json",
         body: JSON.stringify({
@@ -121,4 +130,3 @@ Base predictions on actual data patterns. If insufficient data, use reasonable d
     return { statusCode: 500, headers: CORS_HEADERS, body: JSON.stringify({ error: err.message }) };
   }
 };
-

@@ -311,3 +311,141 @@ class ExportBookings(APIView):
         response = HttpResponse(output.getvalue(), content_type="text/csv")
         response["Content-Disposition"] = 'attachment; filename="bookings_export.csv"'
         return response
+
+
+class ExportGuests(APIView):
+    """GET /api/reports/export/guests"""
+
+    def get(self, request):
+        tenant_id = request.user.tenant_id
+
+        with connection.cursor() as cur:
+            cur.execute(
+                """
+                SELECT g.name, g.email, g.phone, g.is_vip,
+                       ARRAY_TO_STRING(g.tags, ', ') AS tags,
+                       g.notes,
+                       COUNT(b.id) AS total_bookings,
+                       COALESCE(SUM(b.total_amount) FILTER (WHERE b.status != 'cancelled'), 0) AS lifetime_value,
+                       MAX(b.check_in) AS last_stay,
+                       g.created_at
+                FROM guest_profiles g
+                LEFT JOIN bookings b ON b.guest_email = g.email AND b.tenant_id = g.tenant_id
+                WHERE g.tenant_id = %s
+                GROUP BY g.id, g.name, g.email, g.phone, g.is_vip, g.tags, g.notes, g.created_at
+                ORDER BY lifetime_value DESC
+                """,
+                [tenant_id],
+            )
+            cols = [c[0] for c in cur.description]
+            rows = cur.fetchall()
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(cols)
+        for row in rows:
+            writer.writerow([
+                v.isoformat() if hasattr(v, "isoformat") else
+                str(v) if isinstance(v, uuid.UUID) else
+                float(v) if isinstance(v, Decimal) else v
+                for v in row
+            ])
+
+        response = HttpResponse(output.getvalue(), content_type="text/csv")
+        response["Content-Disposition"] = 'attachment; filename="guests_export.csv"'
+        return response
+
+
+class ExportExpenses(APIView):
+    """GET /api/reports/export/expenses?from=YYYY-MM-DD&to=YYYY-MM-DD"""
+
+    def get(self, request):
+        tenant_id = request.user.tenant_id
+        from_date = _parse_date(request.GET.get("from"))
+        to_date = _parse_date(request.GET.get("to"))
+
+        params = [tenant_id]
+        filters = ""
+        if from_date:
+            filters += " AND expense_date >= %s"
+            params.append(from_date)
+        if to_date:
+            filters += " AND expense_date <= %s"
+            params.append(to_date)
+
+        with connection.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT expense_date, category, description, amount,
+                       payment_method, notes, created_at
+                FROM expenses
+                WHERE tenant_id = %s{filters}
+                ORDER BY expense_date DESC
+                """,
+                params,
+            )
+            cols = [c[0] for c in cur.description]
+            rows = cur.fetchall()
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(cols)
+        for row in rows:
+            writer.writerow([
+                v.isoformat() if hasattr(v, "isoformat") else
+                str(v) if isinstance(v, uuid.UUID) else
+                float(v) if isinstance(v, Decimal) else v
+                for v in row
+            ])
+
+        response = HttpResponse(output.getvalue(), content_type="text/csv")
+        response["Content-Disposition"] = 'attachment; filename="expenses_export.csv"'
+        return response
+
+
+class ExportGSTCsv(APIView):
+    """GET /api/reports/export/gst?month=YYYY-MM"""
+
+    def get(self, request):
+        tenant_id = request.user.tenant_id
+        month_start = _parse_month(request.GET.get("month"))
+        if month_start.month == 12:
+            month_end = month_start.replace(year=month_start.year + 1, month=1)
+        else:
+            month_end = month_start.replace(month=month_start.month + 1)
+
+        with connection.cursor() as cur:
+            cur.execute(
+                """
+                SELECT b.guest_name, b.guest_email, b.guest_phone,
+                       r.name AS room_name,
+                       b.check_in, b.check_out,
+                       b.base_amount, b.tax_amount, b.service_charge, b.total_amount,
+                       t.gst_percentage, b.payment_status, b.status
+                FROM bookings b
+                JOIN tenants t ON t.id = b.tenant_id
+                LEFT JOIN rooms r ON r.id = b.room_id
+                WHERE b.tenant_id = %s
+                  AND b.status != 'cancelled'
+                  AND b.check_in >= %s AND b.check_in < %s
+                ORDER BY b.check_in ASC
+                """,
+                [tenant_id, month_start, month_end],
+            )
+            cols = [c[0] for c in cur.description]
+            rows = cur.fetchall()
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(cols)
+        for row in rows:
+            writer.writerow([
+                v.isoformat() if hasattr(v, "isoformat") else
+                str(v) if isinstance(v, uuid.UUID) else
+                float(v) if isinstance(v, Decimal) else v
+                for v in row
+            ])
+
+        response = HttpResponse(output.getvalue(), content_type="text/csv")
+        response["Content-Disposition"] = f'attachment; filename="gst_report_{month_start.strftime("%Y-%m")}.csv"'
+        return response

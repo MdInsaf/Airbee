@@ -22,7 +22,7 @@ interface Room { id: string; name: string; }
 const RULE_TYPES = ["seasonal", "weekend", "holiday", "last_minute", "early_bird", "minimum_stay"];
 const ADJ_TYPES = ["percentage", "fixed"];
 
-const emptyForm = { name: "", rule_type: "seasonal", adjustment_type: "percentage", adjustment_value: 0, start_date: "", end_date: "", min_nights: 1, priority: 1, is_active: true, room_id: "" };
+const emptyForm = { name: "", rule_type: "seasonal", adjustment_type: "percentage", adjustment_value: 0, start_date: "", end_date: "", min_nights: 1, priority: 1, is_active: true, room_id: "_all" };
 
 const PricingRules = () => {
   const { tenantId } = useAuth();
@@ -48,17 +48,18 @@ const PricingRules = () => {
   const openCreate = () => { setEditId(null); setForm(emptyForm); setDialog(true); };
   const openEdit = (r: Rule) => {
     setEditId(r.id);
-    setForm({ name: r.name, rule_type: r.rule_type, adjustment_type: r.adjustment_type, adjustment_value: r.adjustment_value, start_date: r.start_date || "", end_date: r.end_date || "", min_nights: r.min_nights || 1, priority: r.priority || 1, is_active: r.is_active, room_id: "" });
+    setForm({ name: r.name, rule_type: r.rule_type, adjustment_type: r.adjustment_type, adjustment_value: r.adjustment_value, start_date: r.start_date || "", end_date: r.end_date || "", min_nights: r.min_nights || 1, priority: r.priority || 1, is_active: r.is_active, room_id: "_all" });
     setDialog(true);
   };
 
   const handleSave = async () => {
     if (!form.name.trim()) { toast({ title: "Name is required", variant: "destructive" }); return; }
+    const payload = { ...form, room_id: form.room_id === "_all" ? "" : form.room_id };
     try {
       if (editId) {
-        await api.put(`/api/pricing-rules/${editId}`, form);
+        await api.put(`/api/pricing-rules/${editId}`, payload);
       } else {
-        await api.post("/api/pricing-rules", form);
+        await api.post("/api/pricing-rules", payload);
       }
       toast({ title: editId ? "Rule updated" : "Rule created" });
       setDialog(false);
@@ -168,7 +169,7 @@ const PricingRules = () => {
                 <Select value={form.room_id} onValueChange={v => setForm(f => ({ ...f, room_id: v }))}>
                   <SelectTrigger><SelectValue placeholder="All rooms" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All rooms</SelectItem>
+                    <SelectItem value="_all">All rooms</SelectItem>
                     {rooms.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
                   </SelectContent>
                 </Select>

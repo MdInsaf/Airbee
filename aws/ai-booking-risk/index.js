@@ -20,7 +20,8 @@ const pool = new Pool({
   max: 2,
 });
 
-const bedrock = new BedrockRuntimeClient({ region: process.env.BEDROCK_REGION || "us-east-1" });
+const bedrock = new BedrockRuntimeClient({ region: process.env.BEDROCK_REGION || "ap-south-1" });
+const MODEL_ID = process.env.BEDROCK_MODEL_ID || "anthropic.claude-3-5-haiku-20241022-v1:0";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -94,7 +95,7 @@ Return ONLY valid JSON:
 
     const response = await bedrock.send(
       new InvokeModelCommand({
-        modelId: "anthropic.claude-3-5-haiku-20241022-v1:0",
+        modelId: MODEL_ID,
         contentType: "application/json",
         accept: "application/json",
         body: JSON.stringify({

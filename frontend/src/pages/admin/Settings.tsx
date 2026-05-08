@@ -5,10 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { buildTenantSiteUrl } from "@/lib/site-hosts";
+import { ExternalLink } from "lucide-react";
 
 type BookingSiteSettings = {
   hero_title?: string;
@@ -475,27 +477,50 @@ const Settings = () => {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div className="space-y-2">
               <Label>Primary Color</Label>
-              <Input
-                value={bookingTheme.primary_color || ""}
-                onChange={(e) => updateBookingTheme("primary_color", e.target.value)}
-                placeholder="#f59e0b"
-              />
+              <div className="flex gap-2 items-center">
+                <input
+                  type="color"
+                  value={/^#([0-9a-fA-F]{6})$/.test(bookingTheme.primary_color || "") ? bookingTheme.primary_color! : "#f59e0b"}
+                  onChange={(e) => updateBookingTheme("primary_color", e.target.value)}
+                  className="h-10 w-10 rounded border cursor-pointer p-0.5 shrink-0"
+                />
+                <Input
+                  value={bookingTheme.primary_color || ""}
+                  onChange={(e) => updateBookingTheme("primary_color", e.target.value)}
+                  placeholder="#f59e0b"
+                />
+              </div>
             </div>
             <div className="space-y-2">
               <Label>Accent Color</Label>
-              <Input
-                value={bookingTheme.accent_color || ""}
-                onChange={(e) => updateBookingTheme("accent_color", e.target.value)}
-                placeholder="#111827"
-              />
+              <div className="flex gap-2 items-center">
+                <input
+                  type="color"
+                  value={/^#([0-9a-fA-F]{6})$/.test(bookingTheme.accent_color || "") ? bookingTheme.accent_color! : "#111827"}
+                  onChange={(e) => updateBookingTheme("accent_color", e.target.value)}
+                  className="h-10 w-10 rounded border cursor-pointer p-0.5 shrink-0"
+                />
+                <Input
+                  value={bookingTheme.accent_color || ""}
+                  onChange={(e) => updateBookingTheme("accent_color", e.target.value)}
+                  placeholder="#111827"
+                />
+              </div>
             </div>
             <div className="space-y-2">
               <Label>Surface Style</Label>
-              <Input
-                value={bookingTheme.surface_style || ""}
-                onChange={(e) => updateBookingTheme("surface_style", e.target.value)}
-                placeholder="warm"
-              />
+              <Select
+                value={bookingTheme.surface_style || "warm"}
+                onValueChange={(v) => updateBookingTheme("surface_style", v)}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="warm">Warm (default)</SelectItem>
+                  <SelectItem value="cool">Cool (blue tint)</SelectItem>
+                  <SelectItem value="earth">Earth (sand tones)</SelectItem>
+                  <SelectItem value="forest">Forest (dark green)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardContent>
@@ -546,9 +571,19 @@ const Settings = () => {
         </CardContent>
       </Card>
 
-      <Button onClick={handleSave} disabled={saving}>
-        {saving ? "Saving..." : "Save Settings"}
-      </Button>
+      <div className="flex flex-wrap gap-3">
+        <Button onClick={handleSave} disabled={saving}>
+          {saving ? "Saving..." : "Save Settings"}
+        </Button>
+        {bookingUrl && tenant.booking_site_enabled && (
+          <Button variant="outline" asChild>
+            <a href={bookingUrl} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="w-4 h-4 mr-2" />
+              Preview booking site
+            </a>
+          </Button>
+        )}
+      </div>
     </div>
   );
 };

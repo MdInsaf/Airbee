@@ -293,6 +293,23 @@ const PublicBooking = () => {
     }
   }, [slug]);
 
+  useEffect(() => {
+    const title = propertyData?.property.name
+      ? `${propertyData.property.name} | Book your stay`
+      : "Airbee | Book your stay";
+    document.title = title;
+    const desc =
+      propertyData?.property.booking_site?.hero_subtitle ||
+      (propertyData?.property.name ? `Book directly at ${propertyData.property.name}.` : "");
+    let meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.name = "description";
+      document.head.appendChild(meta);
+    }
+    if (desc) meta.content = desc;
+  }, [propertyData]);
+
   const selectedRoom = propertyData?.rooms.find((room) => room.id === selectedRoomId) || null;
   const currency = propertyData?.property.currency || "INR";
   const availableRooms = propertyData?.rooms.length || 0;
@@ -363,6 +380,11 @@ const PublicBooking = () => {
   };
 
   const handleSearch = async () => {
+    if (search.check_in && search.check_out && search.check_out <= search.check_in) {
+      toast({ title: "Invalid dates", description: "Check-out must be after check-in.", variant: "destructive" });
+      return;
+    }
+
     if (resolvedByHost && !slug) {
       await loadCurrentSite(true, true);
       return;
@@ -387,6 +409,23 @@ const PublicBooking = () => {
 
   const handleBooking = async () => {
     if (!selectedRoom) return;
+
+    if (!bookingForm.guest_name.trim()) {
+      toast({ title: "Name required", description: "Please enter your full name.", variant: "destructive" });
+      return;
+    }
+    if (!bookingForm.guest_email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bookingForm.guest_email.trim())) {
+      toast({ title: "Valid email required", description: "Please enter a valid email address.", variant: "destructive" });
+      return;
+    }
+    if (search.guests > selectedRoom.max_guests) {
+      toast({ title: "Too many guests", description: `This room fits up to ${selectedRoom.max_guests} guest(s). Reduce the guest count and search again.`, variant: "destructive" });
+      return;
+    }
+    if (nights > 0 && nights < (selectedRoom.minimum_stay || 1)) {
+      toast({ title: "Minimum stay not met", description: `This room requires at least ${selectedRoom.minimum_stay} night(s).`, variant: "destructive" });
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -609,18 +648,35 @@ const PublicBooking = () => {
                     ) : (
                       propertyData.rooms.map((room) => {
                         const amenities = normalizeStringArray(room.amenities);
+                        const images = normalizeStringArray(room.images);
+                        const firstImage = images[0] || null;
+                        const minStayViolation = nights > 0 && nights < (room.minimum_stay || 1);
+                        const guestViolation = search.guests > room.max_guests;
+                        const canReserve = !minStayViolation && !guestViolation;
 
                         return (
                           <article
                             key={room.id}
-                            className="rounded-[1.75rem] border bg-muted/30 p-4 transition-colors hover:border-primary/40 sm:p-5"
+                            className="rounded-[1.75rem] border bg-muted/30 overflow-hidden transition-colors hover:border-primary/40"
                             style={softPanelStyle}
                           >
+                            {firstImage && (
+                              <div className="h-48 overflow-hidden">
+                                <img src={firstImage} alt={room.name} className="w-full h-full object-cover" />
+                              </div>
+                            )}
+                            <div className="p-4 sm:p-5">
                             <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                               <div className="min-w-0 space-y-3">
                                 <div className="flex flex-wrap items-center gap-2">
                                   <h3 className="text-xl font-semibold" style={textStyle}>{room.name}</h3>
                                   {room.category_name ? <Badge variant="secondary" style={isDark ? { backgroundColor: "rgba(216,185,120,0.15)", color: "#d8b978", borderColor: "rgba(216,185,120,0.3)" } : {}}>{room.category_name}</Badge> : null}
+                                  {minStayViolation && (
+                                    <Badge variant="destructive" className="text-xs">Min {room.minimum_stay} nights required</Badge>
+                                  )}
+                                  {guestViolation && (
+                                    <Badge variant="destructive" className="text-xs">Max {room.max_guests} guests</Badge>
+                                  )}
                                 </div>
                                 {room.description ? (
                                   <p className="max-w-2xl text-sm leading-6" style={mutedStyle}>
@@ -676,11 +732,19 @@ const PublicBooking = () => {
                                   </div>
                                 ) : null}
 
-                                <Button className="mt-4 w-full" onClick={() => handleRoomSelect(room.id)} style={primaryButtonStyle}>
-                                  {ctaLabel}
-                                  <ArrowRight className="ml-2 h-4 w-4" />
+                                <Button
+                                  className="mt-4 w-full"
+                                  onClick={() => canReserve && handleRoomSelect(room.id)}
+                                  disabled={!canReserve}
+                                  style={canReserve ? primaryButtonStyle : {}}
+                                >
+                                  {!canReserve
+                                    ? (minStayViolation ? `Min ${room.minimum_stay} nights required` : `Max ${room.max_guests} guests`)
+                                    : ctaLabel}
+                                  {canReserve && <ArrowRight className="ml-2 h-4 w-4" />}
                                 </Button>
                               </div>
+                            </div>
                             </div>
                           </article>
                         );

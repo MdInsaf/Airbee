@@ -152,4 +152,22 @@ export const api = {
     if (!res.ok) throw new Error(`AI stream ${endpoint} failed: ${res.status}`);
     return res;
   },
+
+  /** Fetch a CSV endpoint with auth and trigger a browser file download */
+  downloadCsv: async (path: string, filename: string): Promise<void> => {
+    const auth = await getAuthHeader();
+    const res = await fetch(buildApiUrl(path), {
+      headers: { Authorization: auth },
+    });
+    if (!res.ok) throw new Error(`Export failed: HTTP ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
 };

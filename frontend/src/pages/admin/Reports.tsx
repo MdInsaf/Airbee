@@ -3,10 +3,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { BarChart3, Download, TrendingUp, FileText, IndianRupee } from "lucide-react";
+import { Download, Loader2, FileSpreadsheet, Users, Receipt, FileText } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 interface Summary {
@@ -29,14 +32,35 @@ interface GSTReport {
   totals: { base_amount: number; tax_amount: number; service_charge: number; total_amount: number };
 }
 
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+function firstOfMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
 const Reports = () => {
   const { tenantId } = useAuth();
-  const today = new Date();
-  const [month, setMonth] = useState(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`);
+  const { toast } = useToast();
+  const now = new Date();
+  const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+  const [month, setMonth] = useState(defaultMonth);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [gst, setGST] = useState<GSTReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("overview");
+
+  // Per-export loading states
+  const [dlLoading, setDlLoading] = useState<Record<string, boolean>>({});
+
+  // Export filter state
+  const [bookingsFrom, setBookingsFrom] = useState(firstOfMonth());
+  const [bookingsTo, setBookingsTo] = useState(today());
+  const [expensesFrom, setExpensesFrom] = useState(firstOfMonth());
+  const [expensesTo, setExpensesTo] = useState(today());
+  const [gstExportMonth, setGstExportMonth] = useState(defaultMonth);
 
   const fetchData = async () => {
     if (!tenantId) return;
@@ -53,11 +77,15 @@ const Reports = () => {
 
   useEffect(() => { fetchData(); }, [tenantId, month]);
 
-  const handleExport = () => {
-    const firstDay = `${month}-01`;
-    const lastDate = new Date(parseInt(month.split("-")[0]), parseInt(month.split("-")[1]), 0);
-    const lastDay = `${month}-${String(lastDate.getDate()).padStart(2, "0")}`;
-    window.open(`${(import.meta.env.VITE_API_URL || "https://fu6frsnvui.execute-api.ap-south-1.amazonaws.com")}/api/reports/export/bookings?from=${firstDay}&to=${lastDay}`, "_blank");
+  const download = async (key: string, path: string, filename: string) => {
+    setDlLoading(prev => ({ ...prev, [key]: true }));
+    try {
+      await api.downloadCsv(path, filename);
+    } catch (e: any) {
+      toast({ title: "Download failed", description: e.message, variant: "destructive" });
+    } finally {
+      setDlLoading(prev => ({ ...prev, [key]: false }));
+    }
   };
 
   const kpis = summary?.kpis;
@@ -67,16 +95,22 @@ const Reports = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Reports</h1>
-          <p className="text-muted-foreground mt-1">Revenue analytics and performance metrics</p>
+          <p className="text-muted-foreground mt-1">Revenue analytics, performance metrics, and data exports</p>
         </div>
-        <div className="flex gap-3 items-center">
-          <input type="month" value={month} onChange={e => setMonth(e.target.value)} className="border rounded px-3 py-1.5 text-sm bg-background" />
-          <Button variant="outline" onClick={handleExport}><Download className="w-4 h-4 mr-2" />Export CSV</Button>
-        </div>
+        <input
+          type="month"
+          value={month}
+          onChange={e => setMonth(e.target.value)}
+          className="border rounded px-3 py-1.5 text-sm bg-background"
+        />
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">{Array.from({ length: 8 }).map((_, i) => <Card key={i}><CardContent className="p-4"><div className="h-12 bg-muted rounded animate-pulse" /></CardContent></Card>)}</div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Card key={i}><CardContent className="p-4"><div className="h-12 bg-muted rounded animate-pulse" /></CardContent></Card>
+          ))}
+        </div>
       ) : (
         <>
           {/* KPI Cards */}
@@ -113,7 +147,9 @@ const Reports = () => {
             </CardContent></Card>
             <Card><CardContent className="p-4">
               <p className="text-sm text-muted-foreground">Net Revenue</p>
-              <p className={`text-2xl font-bold ${(kpis?.net_revenue ?? 0) >= 0 ? "text-green-600" : "text-red-600"}`}>{formatCurrency(kpis?.net_revenue ?? 0)}</p>
+              <p className={`text-2xl font-bold ${(kpis?.net_revenue ?? 0) >= 0 ? "text-green-600" : "text-red-600"}`}>
+                {formatCurrency(kpis?.net_revenue ?? 0)}
+              </p>
             </CardContent></Card>
           </div>
 
@@ -122,8 +158,10 @@ const Reports = () => {
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="gst">GST Report</TabsTrigger>
               <TabsTrigger value="source">By Source</TabsTrigger>
+              <TabsTrigger value="downloads">Downloads</TabsTrigger>
             </TabsList>
 
+            {/* ── Overview ── */}
             <TabsContent value="overview" className="mt-4 space-y-4">
               <Card>
                 <CardHeader><CardTitle className="text-base">Daily Revenue — {month}</CardTitle></CardHeader>
@@ -156,6 +194,7 @@ const Reports = () => {
               </Card>
             </TabsContent>
 
+            {/* ── GST Report ── */}
             <TabsContent value="gst" className="mt-4">
               <Card>
                 <CardHeader>
@@ -207,6 +246,7 @@ const Reports = () => {
               </Card>
             </TabsContent>
 
+            {/* ── By Source ── */}
             <TabsContent value="source" className="mt-4">
               <Card>
                 <CardHeader><CardTitle className="text-base">Revenue by Booking Source</CardTitle></CardHeader>
@@ -234,6 +274,142 @@ const Reports = () => {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            {/* ── Downloads ── */}
+            <TabsContent value="downloads" className="mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                {/* Bookings CSV */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <FileSpreadsheet className="w-4 h-4 text-primary" />
+                      Bookings Report
+                    </CardTitle>
+                    <p className="text-sm text-muted-foreground">All booking details including payments, GST, and guest info</p>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">From</Label>
+                        <Input type="date" value={bookingsFrom} onChange={e => setBookingsFrom(e.target.value)} className="h-8 text-sm" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">To</Label>
+                        <Input type="date" value={bookingsTo} onChange={e => setBookingsTo(e.target.value)} className="h-8 text-sm" />
+                      </div>
+                    </div>
+                    <Button
+                      className="w-full"
+                      disabled={dlLoading["bookings"]}
+                      onClick={() => download(
+                        "bookings",
+                        `/api/reports/export/bookings?from=${bookingsFrom}&to=${bookingsTo}`,
+                        `bookings_${bookingsFrom}_to_${bookingsTo}.csv`
+                      )}
+                    >
+                      {dlLoading["bookings"] ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                      Download Bookings CSV
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                {/* GST CSV */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-orange-500" />
+                      GST Report
+                    </CardTitle>
+                    <p className="text-sm text-muted-foreground">GST-compliant tax report with base, tax, and service charge breakdown</p>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Month</Label>
+                      <input
+                        type="month"
+                        value={gstExportMonth}
+                        onChange={e => setGstExportMonth(e.target.value)}
+                        className="w-full border rounded px-3 py-1.5 text-sm bg-background h-8"
+                      />
+                    </div>
+                    <Button
+                      className="w-full"
+                      disabled={dlLoading["gst"]}
+                      onClick={() => download(
+                        "gst",
+                        `/api/reports/export/gst?month=${gstExportMonth}`,
+                        `gst_report_${gstExportMonth}.csv`
+                      )}
+                    >
+                      {dlLoading["gst"] ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                      Download GST CSV
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                {/* Expenses CSV */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Receipt className="w-4 h-4 text-red-500" />
+                      Expenses Report
+                    </CardTitle>
+                    <p className="text-sm text-muted-foreground">Operating costs by category with payment methods</p>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">From</Label>
+                        <Input type="date" value={expensesFrom} onChange={e => setExpensesFrom(e.target.value)} className="h-8 text-sm" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">To</Label>
+                        <Input type="date" value={expensesTo} onChange={e => setExpensesTo(e.target.value)} className="h-8 text-sm" />
+                      </div>
+                    </div>
+                    <Button
+                      className="w-full"
+                      disabled={dlLoading["expenses"]}
+                      onClick={() => download(
+                        "expenses",
+                        `/api/reports/export/expenses?from=${expensesFrom}&to=${expensesTo}`,
+                        `expenses_${expensesFrom}_to_${expensesTo}.csv`
+                      )}
+                    >
+                      {dlLoading["expenses"] ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                      Download Expenses CSV
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                {/* Guests CSV */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Users className="w-4 h-4 text-blue-500" />
+                      Guest Directory
+                    </CardTitle>
+                    <p className="text-sm text-muted-foreground">All guests with lifetime value, total stays, VIP status, and tags</p>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="rounded-md bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+                      Exports all guest profiles with booking statistics
+                    </div>
+                    <Button
+                      className="w-full"
+                      disabled={dlLoading["guests"]}
+                      onClick={() => download("guests", "/api/reports/export/guests", "guests_export.csv")}
+                    >
+                      {dlLoading["guests"] ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                      Download Guests CSV
+                    </Button>
+                  </CardContent>
+                </Card>
+
+              </div>
+            </TabsContent>
+
           </Tabs>
         </>
       )}
