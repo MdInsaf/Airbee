@@ -547,6 +547,11 @@ class PublicBookingCancelView(APIView):
         if not email:
             return Response({"error": "email is required"}, status=status.HTTP_400_BAD_REQUEST)
 
+        try:
+            uuid.UUID(str(booking_id))
+        except ValueError:
+            return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
+
         with connection.cursor() as cur:
             cur.execute(
                 "SELECT id, status, guest_email FROM bookings WHERE id = %s",
