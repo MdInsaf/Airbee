@@ -9,7 +9,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { Download, Loader2, FileSpreadsheet, Users, Receipt, FileText } from "lucide-react";
+import { Download, Loader2, FileSpreadsheet, Users, Receipt, FileText, BarChart3, MoonStar } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 interface Summary {
@@ -88,6 +88,8 @@ const Reports = () => {
   const [expensesFrom, setExpensesFrom] = useState(firstOfMonth());
   const [expensesTo, setExpensesTo] = useState(today());
   const [gstExportMonth, setGstExportMonth] = useState(defaultMonth);
+  const [summaryExportMonth, setSummaryExportMonth] = useState(defaultMonth);
+  const [auditExportDate, setAuditExportDate] = useState(today());
 
   const fetchData = async () => {
     if (!tenantId) return;
@@ -224,6 +226,19 @@ const Reports = () => {
                       <Button size="sm" variant="outline" onClick={() => fetchAudit(auditDate)} disabled={auditLoading}>
                         {auditLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : "Refresh"}
                       </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={dlLoading["night-audit"]}
+                        onClick={() => download(
+                          "night-audit",
+                          `/api/reports/export/night-audit?date=${auditDate}`,
+                          `night_audit_${auditDate}.csv`
+                        )}
+                      >
+                        {dlLoading["night-audit"] ? <Loader2 className="w-3 h-3 mr-2 animate-spin" /> : <Download className="w-3 h-3 mr-2" />}
+                        Export CSV
+                      </Button>
                     </div>
                   </div>
                 </CardHeader>
@@ -329,6 +344,17 @@ const Reports = () => {
 
             {/* ── Overview ── */}
             <TabsContent value="overview" className="mt-4 space-y-4">
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={dlLoading["summary"]}
+                  onClick={() => download("summary", `/api/reports/export/summary?month=${month}`, `summary_${month}.csv`)}
+                >
+                  {dlLoading["summary"] ? <Loader2 className="w-3 h-3 mr-2 animate-spin" /> : <Download className="w-3 h-3 mr-2" />}
+                  Export Summary CSV
+                </Button>
+              </div>
               <Card>
                 <CardHeader><CardTitle className="text-base">Daily Revenue — {month}</CardTitle></CardHeader>
                 <CardContent>
@@ -444,6 +470,74 @@ const Reports = () => {
             {/* ── Downloads ── */}
             <TabsContent value="downloads" className="mt-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                {/* Summary CSV */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <BarChart3 className="w-4 h-4 text-primary" />
+                      Summary Report
+                    </CardTitle>
+                    <p className="text-sm text-muted-foreground">KPIs, daily revenue, source mix, and status breakdown for the month</p>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Month</Label>
+                      <input
+                        type="month"
+                        value={summaryExportMonth}
+                        onChange={e => setSummaryExportMonth(e.target.value)}
+                        className="w-full border rounded px-3 py-1.5 text-sm bg-background h-8"
+                      />
+                    </div>
+                    <Button
+                      className="w-full"
+                      disabled={dlLoading["summary-tab"]}
+                      onClick={() => download(
+                        "summary-tab",
+                        `/api/reports/export/summary?month=${summaryExportMonth}`,
+                        `summary_${summaryExportMonth}.csv`
+                      )}
+                    >
+                      {dlLoading["summary-tab"] ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                      Download Summary CSV
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                {/* Night Audit CSV */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <MoonStar className="w-4 h-4 text-purple-500" />
+                      Night Audit Report
+                    </CardTitle>
+                    <p className="text-sm text-muted-foreground">Daily close-of-day snapshot: arrivals, departures, in-house, postings, payments</p>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Audit date</Label>
+                      <Input
+                        type="date"
+                        value={auditExportDate}
+                        onChange={e => setAuditExportDate(e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <Button
+                      className="w-full"
+                      disabled={dlLoading["audit-tab"]}
+                      onClick={() => download(
+                        "audit-tab",
+                        `/api/reports/export/night-audit?date=${auditExportDate}`,
+                        `night_audit_${auditExportDate}.csv`
+                      )}
+                    >
+                      {dlLoading["audit-tab"] ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                      Download Night Audit CSV
+                    </Button>
+                  </CardContent>
+                </Card>
 
                 {/* Bookings CSV */}
                 <Card>

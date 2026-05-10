@@ -69,6 +69,8 @@ urlpatterns = [
     path("reports/summary", reports.ReportsSummary.as_view()),
     path("reports/night-audit", reports.NightAuditReport.as_view()),
     path("reports/gst", reports.GSTReport.as_view()),
+    path("reports/export/summary", reports.ExportSummary.as_view()),
+    path("reports/export/night-audit", reports.ExportNightAudit.as_view()),
     path("reports/export/bookings", reports.ExportBookings.as_view()),
     path("reports/export/guests", reports.ExportGuests.as_view()),
     path("reports/export/expenses", reports.ExportExpenses.as_view()),
