@@ -11,12 +11,12 @@ import { api } from "@/lib/api";
 type Msg = { role: "user" | "assistant"; content: string };
 
 const suggestedQuestions = [
-  "What's my current occupancy rate and how can I improve it?",
+  "Book a deluxe room for John Smith from 2026-05-12 to 2026-05-14, 2 guests",
+  "What rooms are available next weekend?",
+  "How does the night audit report work?",
   "Analyze my revenue trends and suggest improvements",
-  "Which rooms should I reprice for better profitability?",
-  "What demand patterns do you see in my bookings?",
+  "Where do I configure GST and tax rates?",
   "Give me a summary of outstanding payments",
-  "Suggest strategies for the upcoming peak season",
 ];
 
 const AICopilot = () => {
@@ -82,7 +82,7 @@ const AICopilot = () => {
               </div>
               <h3 className="text-lg font-semibold mb-2">How can I help you today?</h3>
               <p className="text-sm text-muted-foreground mb-6 text-center max-w-md">
-                I have access to your property data. Ask me about occupancy, revenue, pricing, demand forecasting, or any business decision.
+                I have full product knowledge and live access to your property data. Ask me anything about Airbee — and I can also create bookings for you. Try "Book a deluxe room for…" and I'll ask for whatever I need.
               </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-w-2xl">
                 {suggestedQuestions.map((q) => (

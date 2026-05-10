@@ -4,7 +4,7 @@ from datetime import datetime, date
 from decimal import Decimal
 import uuid
 
-from django.db import connection
+from django.db import connection, transaction
 from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -195,6 +195,152 @@ class ReportsSummary(APIView):
             "revenue_by_source": revenue_by_source,
             "daily_revenue": daily_revenue,
             "status_breakdown": status_breakdown,
+        })
+
+
+class NightAuditReport(APIView):
+    """GET /api/reports/night-audit?date=YYYY-MM-DD
+
+    End-of-day snapshot used to close out the business day:
+    arrivals, departures, in-house guests, room status mix,
+    revenue posted, payments collected, and outstanding balances.
+    """
+
+    def get(self, request):
+        tenant_id = request.user.tenant_id
+        audit_date = _parse_date(request.GET.get("date")) or timezone.now().date()
+
+        with connection.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM rooms WHERE tenant_id = %s", [tenant_id])
+            total_rooms = int((cur.fetchone() or [0])[0] or 0)
+
+            cur.execute(
+                """
+                SELECT status, COUNT(*)
+                FROM rooms
+                WHERE tenant_id = %s
+                GROUP BY status
+                """,
+                [tenant_id],
+            )
+            room_status_mix = {r[0]: int(r[1]) for r in cur.fetchall()}
+
+            cur.execute(
+                """
+                SELECT housekeeping_status, COUNT(*)
+                FROM rooms
+                WHERE tenant_id = %s
+                GROUP BY housekeeping_status
+                """,
+                [tenant_id],
+            )
+            housekeeping_mix = {r[0]: int(r[1]) for r in cur.fetchall()}
+
+            booking_select = """
+                SELECT b.id, b.guest_name, b.guest_email, b.guest_phone,
+                       b.check_in, b.check_out, b.guests,
+                       b.total_amount, b.amount_paid,
+                       b.status, b.payment_status,
+                       r.name AS room_name
+                FROM bookings b
+                LEFT JOIN rooms r ON r.id = b.room_id
+                WHERE b.tenant_id = %s
+            """
+
+            cur.execute(
+                booking_select + " AND b.check_in = %s AND b.status != 'cancelled' ORDER BY r.name",
+                [tenant_id, audit_date],
+            )
+            cols = [c[0] for c in cur.description]
+            arrivals = [_serialize(r, cols) for r in cur.fetchall()]
+
+            cur.execute(
+                booking_select + " AND b.check_out = %s AND b.status != 'cancelled' ORDER BY r.name",
+                [tenant_id, audit_date],
+            )
+            cols = [c[0] for c in cur.description]
+            departures = [_serialize(r, cols) for r in cur.fetchall()]
+
+            cur.execute(
+                booking_select
+                + " AND b.check_in <= %s AND b.check_out > %s AND b.status = 'confirmed' ORDER BY r.name",
+                [tenant_id, audit_date, audit_date],
+            )
+            cols = [c[0] for c in cur.description]
+            in_house = [_serialize(r, cols) for r in cur.fetchall()]
+
+            cur.execute(
+                """
+                SELECT
+                    COALESCE(SUM(total_amount), 0) AS revenue_posted,
+                    COALESCE(SUM(base_amount), 0) AS base_posted,
+                    COALESCE(SUM(tax_amount), 0) AS tax_posted,
+                    COALESCE(SUM(service_charge), 0) AS service_posted,
+                    COUNT(*) AS posting_count
+                FROM bookings
+                WHERE tenant_id = %s
+                  AND status != 'cancelled'
+                  AND check_in = %s
+                """,
+                [tenant_id, audit_date],
+            )
+            row = cur.fetchone() or (0, 0, 0, 0, 0)
+            revenue_posted = _safe_float(row[0])
+            base_posted = _safe_float(row[1])
+            tax_posted = _safe_float(row[2])
+            service_posted = _safe_float(row[3])
+            posting_count = int(row[4] or 0)
+
+            payments_collected = 0.0
+            payment_count = 0
+            try:
+                with transaction.atomic():
+                    cur.execute(
+                        """
+                        SELECT COALESCE(SUM(amount), 0), COUNT(*)
+                        FROM booking_payments
+                        WHERE tenant_id = %s
+                          AND DATE(received_at) = %s
+                        """,
+                        [tenant_id, audit_date],
+                    )
+                    pay_row = cur.fetchone() or (0, 0)
+                    payments_collected = _safe_float(pay_row[0])
+                    payment_count = int(pay_row[1] or 0)
+            except Exception:
+                pass
+
+            outstanding = sum(
+                max(0.0, _safe_float(b.get("total_amount")) - _safe_float(b.get("amount_paid")))
+                for b in in_house
+                if b.get("payment_status") != "paid"
+            )
+
+        in_house_count = len(in_house)
+        occupancy_rate = round((in_house_count / total_rooms) * 100, 1) if total_rooms else 0.0
+
+        return Response({
+            "date": audit_date.isoformat(),
+            "totals": {
+                "total_rooms": total_rooms,
+                "in_house": in_house_count,
+                "arrivals": len(arrivals),
+                "departures": len(departures),
+                "occupancy_rate": occupancy_rate,
+                "revenue_posted": round(revenue_posted, 2),
+                "base_posted": round(base_posted, 2),
+                "tax_posted": round(tax_posted, 2),
+                "service_posted": round(service_posted, 2),
+                "posting_count": posting_count,
+                "payments_collected": round(payments_collected, 2),
+                "payment_count": payment_count,
+                "outstanding": round(outstanding, 2),
+            },
+            "room_status_mix": room_status_mix,
+            "housekeeping_mix": housekeeping_mix,
+            "arrivals": arrivals,
+            "departures": departures,
+            "in_house": in_house,
         })
 
 

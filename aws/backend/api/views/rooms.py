@@ -91,36 +91,52 @@ class RoomList(APIView):
             return Response({"error": "Invalid room status"}, status=status.HTTP_400_BAD_REQUEST)
         if d["housekeeping_status"] and d["housekeeping_status"] not in ALLOWED_HOUSEKEEPING_STATUS:
             return Response({"error": "Invalid housekeeping status"}, status=status.HTTP_400_BAD_REQUEST)
-        room_id = str(uuid.uuid4())
+
+        count = max(1, min(500, _safe_int(request.data.get("count"), 1)))
+        start_number = _safe_int(request.data.get("start_number"), 1)
+        # When bulk-creating, the supplied "name" acts as the prefix unless name_prefix overrides it.
+        prefix = (request.data.get("name_prefix") or d["name"]).strip() if count > 1 else d["name"]
+
         try:
             with connection.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO rooms (id, tenant_id, name, description, category_id,
-                                       max_guests, base_price, status, housekeeping_status)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,
-                            COALESCE(%s,'available'),
-                            COALESCE(%s,'clean'))
-                    """,
-                    [
-                        room_id,
-                        tenant_id,
-                        d["name"],
-                        d["description"],
-                        d["category_id"],
-                        d["max_guests"],
-                        d["base_price"],
-                        d["status"],
-                        d["housekeeping_status"],
-                    ],
-                )
+                created_ids = []
+                for i in range(count):
+                    room_id = str(uuid.uuid4())
+                    if count > 1:
+                        room_name = f"{prefix} {start_number + i}".strip()
+                    else:
+                        room_name = d["name"]
+                    cur.execute(
+                        """
+                        INSERT INTO rooms (id, tenant_id, name, description, category_id,
+                                           max_guests, base_price, status, housekeeping_status)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,
+                                COALESCE(%s,'available'),
+                                COALESCE(%s,'clean'))
+                        """,
+                        [
+                            room_id,
+                            tenant_id,
+                            room_name,
+                            d["description"],
+                            d["category_id"],
+                            d["max_guests"],
+                            d["base_price"],
+                            d["status"],
+                            d["housekeeping_status"],
+                        ],
+                    )
+                    created_ids.append(room_id)
         except Exception as exc:
             print(f"Room create error: {exc}")
             return Response(
                 {"error": f"Could not create room: {exc}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        return Response({"id": room_id}, status=status.HTTP_201_CREATED)
+
+        if count > 1:
+            return Response({"created": created_ids, "count": count}, status=status.HTTP_201_CREATED)
+        return Response({"id": created_ids[0]}, status=status.HTTP_201_CREATED)
 
 
 class RoomDetail(APIView):

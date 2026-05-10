@@ -31,6 +31,7 @@ urlpatterns = [
 
     # Bookings
     path("bookings", bookings.BookingList.as_view()),
+    path("bookings/bulk", bookings.BookingBulkCreate.as_view()),
     path("bookings/<str:booking_id>", bookings.BookingDetail.as_view()),
 
     # Payments per booking
@@ -66,6 +67,7 @@ urlpatterns = [
 
     # Reports
     path("reports/summary", reports.ReportsSummary.as_view()),
+    path("reports/night-audit", reports.NightAuditReport.as_view()),
     path("reports/gst", reports.GSTReport.as_view()),
     path("reports/export/bookings", reports.ExportBookings.as_view()),
     path("reports/export/guests", reports.ExportGuests.as_view()),

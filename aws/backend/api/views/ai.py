@@ -425,31 +425,321 @@ def _fetch_property_data(tenant_id):
     }
 
 
+COPILOT_PRODUCT_BRIEF = (
+    "AIR BEE is a multi-tenant hotel operations + revenue management platform. "
+    "Modules: Rooms (categories, pricing, housekeeping), Bookings (single + bulk + room transfer), "
+    "Guests (profiles, VIP, segments), Housekeeping, Marketing (campaigns, segments, templates), "
+    "Channel Manager (iCal sync), Public Booking Engine, Reports (Summary, Night Audit, GST, exports), "
+    "AI Suite (Copilot, Forecast, Pricing, Guest Intelligence, Sentiment, Booking Risk, Daily Briefing). "
+    "You can answer any product question (how to use a feature, where to find something, pricing logic, "
+    "GST handling, multi-tenant isolation, etc.) and you can take actions for the user via tools: "
+    "list categories, list available rooms for dates, and create a booking. "
+    "When the user asks to BOOK a room: gather all required fields conversationally — "
+    "guest_name, check_in (YYYY-MM-DD), check_out (YYYY-MM-DD), room category or specific room, "
+    "guests count, optional email and phone — then call create_booking. "
+    "If a room category is mentioned (e.g. 'deluxe'), use list_available_rooms first to find a "
+    "matching available room for those dates. Confirm the rate with the user before booking when feasible. "
+    "Be concise and specific."
+)
+
+
+COPILOT_TOOLS = [
+    {
+        "name": "list_room_categories",
+        "description": "List all room categories for the current property.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "list_available_rooms",
+        "description": (
+            "List rooms that are bookable for a given date range, optionally filtered by category name. "
+            "A room is available if its status is 'available' and there is no overlapping pending/confirmed booking."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "check_in": {"type": "string", "description": "YYYY-MM-DD"},
+                "check_out": {"type": "string", "description": "YYYY-MM-DD (must be after check_in)"},
+                "category": {"type": "string", "description": "Optional category name filter, case-insensitive (e.g. 'deluxe')."},
+                "guests": {"type": "integer", "description": "Optional minimum guest capacity."},
+            },
+            "required": ["check_in", "check_out"],
+        },
+    },
+    {
+        "name": "create_booking",
+        "description": "Create a single confirmed booking for an existing available room.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "room_id": {"type": "string", "description": "UUID of the target room."},
+                "guest_name": {"type": "string"},
+                "guest_email": {"type": "string"},
+                "guest_phone": {"type": "string"},
+                "check_in": {"type": "string", "description": "YYYY-MM-DD"},
+                "check_out": {"type": "string", "description": "YYYY-MM-DD"},
+                "guests": {"type": "integer", "description": "Number of guests, default 1."},
+                "total_amount": {"type": "number", "description": "If omitted, computed from room base_price * nights."},
+                "notes": {"type": "string"},
+            },
+            "required": ["room_id", "guest_name", "check_in", "check_out"],
+        },
+    },
+]
+
+
+def _tool_list_room_categories(tenant_id, _args):
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT id, name, color, description FROM room_categories WHERE tenant_id = %s ORDER BY display_order, name",
+            [tenant_id],
+        )
+        cols = [c[0] for c in cur.description]
+        return [_serialize_row(r, cols) for r in cur.fetchall()]
+
+
+def _tool_list_available_rooms(tenant_id, args):
+    check_in = args.get("check_in")
+    check_out = args.get("check_out")
+    category = (args.get("category") or "").strip().lower() or None
+    min_guests = args.get("guests")
+    if not check_in or not check_out:
+        return {"error": "check_in and check_out are required"}
+    try:
+        from datetime import datetime as _dt
+        ci = _dt.strptime(check_in, "%Y-%m-%d").date()
+        co = _dt.strptime(check_out, "%Y-%m-%d").date()
+    except Exception:
+        return {"error": "Dates must be YYYY-MM-DD"}
+    if co <= ci:
+        return {"error": "check_out must be after check_in"}
+
+    with connection.cursor() as cur:
+        cur.execute(
+            """
+            SELECT r.id, r.name, r.base_price, r.max_guests, r.status,
+                   r.category_id, c.name AS category_name
+            FROM rooms r
+            LEFT JOIN room_categories c ON c.id = r.category_id
+            WHERE r.tenant_id = %s AND r.status = 'available'
+              AND NOT EXISTS (
+                SELECT 1 FROM bookings b
+                WHERE b.tenant_id = r.tenant_id
+                  AND b.room_id = r.id
+                  AND b.status IN ('pending', 'confirmed')
+                  AND b.check_in < %s AND b.check_out > %s
+              )
+            ORDER BY r.base_price
+            """,
+            [tenant_id, co, ci],
+        )
+        cols = [c[0] for c in cur.description]
+        rows = [_serialize_row(r, cols) for r in cur.fetchall()]
+
+    if category:
+        rows = [r for r in rows if (r.get("category_name") or "").lower().find(category) != -1]
+    if isinstance(min_guests, int) and min_guests > 0:
+        rows = [r for r in rows if int(r.get("max_guests") or 1) >= min_guests]
+    return {"rooms": rows, "nights": (co - ci).days}
+
+
+def _tool_create_booking(tenant_id, args):
+    from api.views.bookings import _create_one_booking
+    item = {
+        "room_id": args.get("room_id"),
+        "guest_name": args.get("guest_name"),
+        "guest_email": args.get("guest_email"),
+        "guest_phone": args.get("guest_phone"),
+        "check_in": args.get("check_in"),
+        "check_out": args.get("check_out"),
+        "guests": args.get("guests") or 1,
+        "total_amount": args.get("total_amount") or 0,
+        "notes": args.get("notes"),
+        "status": "confirmed",
+        "payment_status": "unpaid",
+        "booking_source": "copilot",
+    }
+    from django.db import transaction as _tx
+    try:
+        with _tx.atomic(), connection.cursor() as cur:
+            code, payload = _create_one_booking(cur, tenant_id, item)
+            if code >= 400:
+                raise ValueError(payload.get("error") or "Booking failed")
+            return {"booking": payload, "status": "created"}
+    except ValueError as ve:
+        return {"error": str(ve)}
+    except Exception as exc:
+        return {"error": f"Booking failed: {exc}"}
+
+
+def _execute_tool(tenant_id, name, args):
+    args = args or {}
+    if name == "list_room_categories":
+        return _tool_list_room_categories(tenant_id, args)
+    if name == "list_available_rooms":
+        return _tool_list_available_rooms(tenant_id, args)
+    if name == "create_booking":
+        return _tool_create_booking(tenant_id, args)
+    return {"error": f"Unknown tool: {name}"}
+
+
+def _bedrock_tool_loop(client, model_id, system, messages, max_tokens, tenant_id, max_rounds=4):
+    """Run an Anthropic-on-Bedrock conversation with tool_use for up to max_rounds turns."""
+    convo = list(messages)
+    final_text_parts = []
+    for _ in range(max_rounds):
+        body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": max_tokens,
+            "system": system,
+            "tools": COPILOT_TOOLS,
+            "messages": convo,
+        }
+        resp = client.invoke_model(
+            modelId=model_id,
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps(body),
+        )
+        out = json.loads(resp["body"].read())
+        stop_reason = out.get("stop_reason")
+        content = out.get("content", []) or []
+
+        # Collect any text emitted in this turn.
+        text_chunks = [c.get("text", "") for c in content if c.get("type") == "text"]
+        if text_chunks:
+            final_text_parts.append("\n".join(t for t in text_chunks if t))
+
+        if stop_reason != "tool_use":
+            break
+
+        # Add assistant turn (with tool_use blocks) and a user turn with tool_result blocks.
+        convo.append({"role": "assistant", "content": content})
+        tool_results = []
+        for block in content:
+            if block.get("type") != "tool_use":
+                continue
+            result = _execute_tool(tenant_id, block.get("name"), block.get("input") or {})
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": block.get("id"),
+                "content": json.dumps(result, default=str),
+            })
+        convo.append({"role": "user", "content": tool_results})
+
+    return "\n\n".join(p for p in final_text_parts if p) or "(no response)"
+
+
+def _openai_tool_loop(client, model, system, messages, max_tokens, tenant_id, max_rounds=4):
+    """Run an OpenAI conversation with function calling (used in LOCAL_DEV)."""
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": t["name"],
+                "description": t["description"],
+                "parameters": t["input_schema"],
+            },
+        }
+        for t in COPILOT_TOOLS
+    ]
+    convo = [{"role": "system", "content": system}] + list(messages)
+    final_text = ""
+    for _ in range(max_rounds):
+        resp = client.chat.completions.create(
+            model=model,
+            messages=convo,
+            tools=tools,
+            max_tokens=max_tokens,
+        )
+        msg = resp.choices[0].message
+        if not msg.tool_calls:
+            final_text = msg.content or ""
+            break
+        convo.append({
+            "role": "assistant",
+            "content": msg.content or "",
+            "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                }
+                for tc in msg.tool_calls
+            ],
+        })
+        for tc in msg.tool_calls:
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except Exception:
+                args = {}
+            result = _execute_tool(tenant_id, tc.function.name, args)
+            convo.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": json.dumps(result, default=str),
+            })
+    return final_text or "(no response)"
+
+
 class CopilotView(APIView):
     def post(self, request):
         tenant_id = request.user.tenant_id
-        messages = request.data.get("messages", [])
+        messages = request.data.get("messages", []) or []
+        # Shape messages for Anthropic/OpenAI APIs (only user/assistant roles, content as string).
+        chat = [
+            {"role": m.get("role"), "content": str(m.get("content", ""))}
+            for m in messages
+            if m.get("role") in ("user", "assistant") and m.get("content")
+        ]
+        if not chat:
+            chat = [{"role": "user", "content": "Give me an overview of the property."}]
+
         snapshot = _fetch_property_data(tenant_id)
-        stats = snapshot["stats"]
-        context = _build_ai_context(
-            snapshot,
-            booking_limit=12,
-            room_limit=15,
+        context = _build_ai_context(snapshot, booking_limit=12, room_limit=15)
+        today_iso = timezone.now().date().isoformat()
+        system = (
+            f"{COPILOT_PRODUCT_BRIEF}\n\nToday's date: {today_iso}.\n"
+            f"Property snapshot (use as source of truth for current state): {context}"
         )
 
-        last_user_msg = next(
-            (m.get("content", "") for m in reversed(messages) if m.get("role") == "user"),
-            "",
-        )
+        openai_key = os.environ.get("OPENAI_API_KEY", "")
+        try:
+            if getattr(settings, "LOCAL_DEV", False) and openai_key:
+                from openai import OpenAI
+                client = OpenAI(api_key=openai_key)
+                text = _openai_tool_loop(
+                    client, "gpt-4o-mini", system, chat, max_tokens=900, tenant_id=tenant_id
+                )
+            else:
+                bedrock_model_id = os.environ.get(
+                    "BEDROCK_MODEL_ID", "anthropic.claude-3-haiku-20240307-v1:0"
+                )
+                client = _get_bedrock_client()
+                try:
+                    text = _bedrock_tool_loop(
+                        client, bedrock_model_id, system, chat, max_tokens=900, tenant_id=tenant_id
+                    )
+                except Exception as exc:
+                    if _is_marketplace_billing_error(exc):
+                        text = (
+                            "AI Copilot is temporarily unavailable: this AWS account is missing the "
+                            "Anthropic Bedrock subscription. Set OPENAI_API_KEY for local dev or "
+                            "subscribe to Anthropic models in the Bedrock console."
+                        )
+                    else:
+                        # Fall back to a simple no-tool prompt so the user at least gets text.
+                        print(f"Bedrock tool loop failed; falling back to plain prompt: {exc}")
+                        last_user = next(
+                            (m["content"] for m in reversed(chat) if m["role"] == "user"), ""
+                        )
+                        text = _invoke(
+                            f"{system}\n\nUser question: {last_user}", max_tokens=900
+                        )
+        except Exception as exc:
+            print(f"Copilot error: {exc}")
+            text = "AI Copilot encountered an error. Please try again."
 
-        prompt = (
-            "You are AIR BEE AI Copilot for hotel management. "
-            "Provide concise, actionable answers with concrete numbers when possible.\n"
-            "Use the hotel snapshot below as source data.\n\n"
-            f"Snapshot: {context}\n\n"
-            f"User question: {last_user_msg or 'Give me an overview.'}"
-        )
-        text = _invoke(prompt, max_tokens=900)
         return Response(
             {
                 "choices": [

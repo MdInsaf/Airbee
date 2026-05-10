@@ -32,6 +32,30 @@ interface GSTReport {
   totals: { base_amount: number; tax_amount: number; service_charge: number; total_amount: number };
 }
 
+interface NightAudit {
+  date: string;
+  totals: {
+    total_rooms: number;
+    in_house: number;
+    arrivals: number;
+    departures: number;
+    occupancy_rate: number;
+    revenue_posted: number;
+    base_posted: number;
+    tax_posted: number;
+    service_posted: number;
+    posting_count: number;
+    payments_collected: number;
+    payment_count: number;
+    outstanding: number;
+  };
+  room_status_mix: Record<string, number>;
+  housekeeping_mix: Record<string, number>;
+  arrivals: any[];
+  departures: any[];
+  in_house: any[];
+}
+
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -49,6 +73,9 @@ const Reports = () => {
   const [month, setMonth] = useState(defaultMonth);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [gst, setGST] = useState<GSTReport | null>(null);
+  const [audit, setAudit] = useState<NightAudit | null>(null);
+  const [auditDate, setAuditDate] = useState<string>(today());
+  const [auditLoading, setAuditLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("overview");
 
@@ -76,6 +103,24 @@ const Reports = () => {
   };
 
   useEffect(() => { fetchData(); }, [tenantId, month]);
+
+  const fetchAudit = async (date: string) => {
+    if (!tenantId) return;
+    setAuditLoading(true);
+    try {
+      const a = await api.get<NightAudit>(`/api/reports/night-audit?date=${date}`);
+      setAudit(a);
+    } catch (e: any) {
+      toast({ title: "Night audit failed", description: e.message, variant: "destructive" });
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (tab === "audit") fetchAudit(auditDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, auditDate, tenantId]);
 
   const download = async (key: string, path: string, filename: string) => {
     setDlLoading(prev => ({ ...prev, [key]: true }));
@@ -156,10 +201,131 @@ const Reports = () => {
           <Tabs value={tab} onValueChange={setTab}>
             <TabsList>
               <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="audit">Night Audit</TabsTrigger>
               <TabsTrigger value="gst">GST Report</TabsTrigger>
               <TabsTrigger value="source">By Source</TabsTrigger>
               <TabsTrigger value="downloads">Downloads</TabsTrigger>
             </TabsList>
+
+            {/* ── Night Audit ── */}
+            <TabsContent value="audit" className="mt-4 space-y-4">
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between gap-4">
+                    <CardTitle className="text-base">Night Audit — {audit?.date || auditDate}</CardTitle>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs">Audit date</Label>
+                      <Input
+                        type="date"
+                        value={auditDate}
+                        onChange={e => setAuditDate(e.target.value)}
+                        className="h-8 text-sm w-40"
+                      />
+                      <Button size="sm" variant="outline" onClick={() => fetchAudit(auditDate)} disabled={auditLoading}>
+                        {auditLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : "Refresh"}
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {auditLoading ? (
+                    <div className="h-32 bg-muted rounded animate-pulse" />
+                  ) : !audit ? (
+                    <p className="text-muted-foreground text-sm">Select a date to run the night audit.</p>
+                  ) : (
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="p-3 rounded-lg bg-muted/50">
+                          <p className="text-xs text-muted-foreground">Occupancy</p>
+                          <p className="text-xl font-bold">{audit.totals.occupancy_rate}%</p>
+                          <p className="text-xs text-muted-foreground">{audit.totals.in_house}/{audit.totals.total_rooms} rooms</p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-muted/50">
+                          <p className="text-xs text-muted-foreground">Arrivals</p>
+                          <p className="text-xl font-bold">{audit.totals.arrivals}</p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-muted/50">
+                          <p className="text-xs text-muted-foreground">Departures</p>
+                          <p className="text-xl font-bold">{audit.totals.departures}</p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-muted/50">
+                          <p className="text-xs text-muted-foreground">Postings</p>
+                          <p className="text-xl font-bold">{audit.totals.posting_count}</p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-muted/50">
+                          <p className="text-xs text-muted-foreground">Revenue posted</p>
+                          <p className="text-xl font-bold">{formatCurrency(audit.totals.revenue_posted)}</p>
+                          <p className="text-xs text-muted-foreground">GST {formatCurrency(audit.totals.tax_posted)}</p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-muted/50">
+                          <p className="text-xs text-muted-foreground">Payments collected</p>
+                          <p className="text-xl font-bold text-green-600">{formatCurrency(audit.totals.payments_collected)}</p>
+                          <p className="text-xs text-muted-foreground">{audit.totals.payment_count} txns</p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-muted/50">
+                          <p className="text-xs text-muted-foreground">Outstanding (in-house)</p>
+                          <p className="text-xl font-bold text-red-600">{formatCurrency(audit.totals.outstanding)}</p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-muted/50">
+                          <p className="text-xs text-muted-foreground">Room status</p>
+                          <p className="text-sm font-medium">
+                            {Object.entries(audit.room_status_mix).map(([k, v]) => `${k}:${v}`).join("  ")}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            HK: {Object.entries(audit.housekeeping_mix).map(([k, v]) => `${k}:${v}`).join(" ")}
+                          </p>
+                        </div>
+                      </div>
+
+                      {[
+                        { title: "Arrivals", rows: audit.arrivals },
+                        { title: "Departures", rows: audit.departures },
+                        { title: "In-house", rows: audit.in_house },
+                      ].map(section => (
+                        <div key={section.title}>
+                          <h4 className="font-semibold mb-2">{section.title} <span className="text-muted-foreground font-normal">({section.rows.length})</span></h4>
+                          {section.rows.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">None</p>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Guest</TableHead>
+                                    <TableHead>Room</TableHead>
+                                    <TableHead>Check-in</TableHead>
+                                    <TableHead>Check-out</TableHead>
+                                    <TableHead>Total</TableHead>
+                                    <TableHead>Paid</TableHead>
+                                    <TableHead>Payment</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {section.rows.map(b => (
+                                    <TableRow key={b.id}>
+                                      <TableCell>
+                                        <p className="font-medium">{b.guest_name}</p>
+                                        {b.guest_email && <p className="text-xs text-muted-foreground">{b.guest_email}</p>}
+                                      </TableCell>
+                                      <TableCell className="text-sm">{b.room_name || "—"}</TableCell>
+                                      <TableCell className="text-sm">{formatDate(b.check_in)}</TableCell>
+                                      <TableCell className="text-sm">{formatDate(b.check_out)}</TableCell>
+                                      <TableCell>{formatCurrency(b.total_amount)}</TableCell>
+                                      <TableCell>{formatCurrency(b.amount_paid)}</TableCell>
+                                      <TableCell className="text-sm capitalize">{b.payment_status}</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
 
             {/* ── Overview ── */}
             <TabsContent value="overview" className="mt-4 space-y-4">
