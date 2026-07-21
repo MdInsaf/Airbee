@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.db import connection
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from api.permissions import IsStaff
 
 
 def _serialize(row, columns):
@@ -18,6 +19,8 @@ def _serialize(row, columns):
 
 
 class HousekeepingList(APIView):
+    permission_classes = [IsStaff]
+
     def get(self, request):
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
@@ -36,6 +39,8 @@ class HousekeepingList(APIView):
 
 
 class HousekeepingDetail(APIView):
+    permission_classes = [IsStaff]
+
     def put(self, request, room_id):
         tenant_id = request.user.tenant_id
         new_status = request.data.get("housekeeping_status")

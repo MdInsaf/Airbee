@@ -5,6 +5,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from api.exceptions import safe_error_response
+from api.permissions import CanManageStaff
 
 
 ALLOWED_ROLES = {"manager", "front_desk", "housekeeping", "maintenance", "staff"}
@@ -23,6 +24,8 @@ def _serialize(row, columns):
 
 
 class StaffList(APIView):
+    permission_classes = [CanManageStaff]
+
     def get(self, request):
         tenant_id = request.user.tenant_id
         try:
@@ -85,6 +88,8 @@ class StaffList(APIView):
 
 
 class StaffDetail(APIView):
+    permission_classes = [CanManageStaff]
+
     def put(self, request, staff_id):
         tenant_id = request.user.tenant_id
         d = request.data

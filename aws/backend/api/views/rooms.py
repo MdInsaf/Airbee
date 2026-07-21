@@ -5,6 +5,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from api.exceptions import safe_error_response
+from api.permissions import IsStaff
 
 ALLOWED_ROOM_STATUS = {"available", "maintenance", "unavailable"}
 ALLOWED_HOUSEKEEPING_STATUS = {"clean", "dirty", "in_progress", "inspecting"}
@@ -65,6 +66,8 @@ def _normalize_room_payload(data, partial=False):
 
 
 class RoomList(APIView):
+    permission_classes = [IsStaff]
+
     def get(self, request):
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
@@ -141,6 +144,8 @@ class RoomList(APIView):
 
 
 class RoomDetail(APIView):
+    permission_classes = [IsStaff]
+
     def put(self, request, room_id):
         tenant_id = request.user.tenant_id
         d = _normalize_room_payload(request.data, partial=True)

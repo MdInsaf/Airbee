@@ -6,6 +6,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from api.exceptions import safe_error_response
+from api.permissions import IsStaff
 
 
 def _serialize(row, columns):
@@ -36,6 +37,8 @@ def _safe_float(v, d=0.0):
 
 class PricingRuleList(APIView):
     """GET /api/pricing-rules  POST /api/pricing-rules"""
+
+    permission_classes = [IsStaff]
 
     def get(self, request):
         tenant_id = request.user.tenant_id
@@ -114,6 +117,8 @@ class PricingRuleList(APIView):
 
 class PricingRuleDetail(APIView):
     """PUT /api/pricing-rules/{id}  DELETE /api/pricing-rules/{id}"""
+
+    permission_classes = [IsStaff]
 
     def put(self, request, rule_id):
         tenant_id = request.user.tenant_id

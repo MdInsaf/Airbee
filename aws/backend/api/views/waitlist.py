@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from api.exceptions import safe_error_response
+from api.permissions import IsStaff
 
 
 def _serialize(row, columns):
@@ -30,6 +31,8 @@ def _parse_date(raw):
 
 class WaitlistList(APIView):
     """GET /api/waitlist  (admin)"""
+
+    permission_classes = [IsStaff]
 
     def get(self, request):
         tenant_id = request.user.tenant_id
@@ -57,6 +60,8 @@ class WaitlistList(APIView):
 
 class WaitlistDetail(APIView):
     """PUT /api/waitlist/{id} — update status (notified/booked/expired)"""
+
+    permission_classes = [IsStaff]
 
     def put(self, request, waitlist_id):
         tenant_id = request.user.tenant_id

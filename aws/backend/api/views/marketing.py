@@ -5,6 +5,7 @@ from django.db import connection
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from api.permissions import IsStaff
 
 from api.views.engagement_utils import (
     _serialize,
@@ -34,6 +35,8 @@ def _campaign_snapshot(segment_key, segment_name, template_id, template_name):
 
 
 class MarketingDashboard(APIView):
+    permission_classes = [IsStaff]
+
     def get(self, request):
         tenant_id = request.user.tenant_id
         contacts = get_marketing_contacts(tenant_id)
@@ -65,6 +68,8 @@ class MarketingDashboard(APIView):
 
 
 class MarketingContactList(APIView):
+    permission_classes = [IsStaff]
+
     def get(self, request):
         return Response(get_marketing_contacts(request.user.tenant_id))
 
@@ -106,6 +111,7 @@ class MarketingContactList(APIView):
 
 
 class MarketingSegmentList(APIView):
+    permission_classes = [IsStaff]
     def get(self, request):
         return Response(get_custom_segments(request.user.tenant_id))
 
@@ -124,6 +130,7 @@ class MarketingSegmentList(APIView):
 
 
 class MarketingSegmentDetail(APIView):
+    permission_classes = [IsStaff]
     def put(self, request, segment_id):
         tenant_id = request.user.tenant_id
         payload = request.data
@@ -147,6 +154,8 @@ class MarketingSegmentDetail(APIView):
 
 
 class CampaignList(APIView):
+    permission_classes = [IsStaff]
+
     def post(self, request):
         tenant_id = request.user.tenant_id
         payload = request.data
@@ -209,6 +218,7 @@ class CampaignList(APIView):
 
 
 class CampaignDetail(APIView):
+    permission_classes = [IsStaff]
     def put(self, request, campaign_id):
         tenant_id = request.user.tenant_id
         payload = request.data
@@ -276,6 +286,8 @@ class CampaignDetail(APIView):
 
 
 class CampaignLaunch(APIView):
+    permission_classes = [IsStaff]
+
     def post(self, request, campaign_id):
         tenant_id = request.user.tenant_id
         campaign = next((item for item in get_campaigns(tenant_id) if item.get("id") == campaign_id), None)

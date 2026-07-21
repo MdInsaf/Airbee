@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from api.idempotency import idempotent
+from api.permissions import CanManageBookings
 
 
 logger = logging.getLogger("airbee.bookings")
@@ -60,6 +61,8 @@ def _normalize_uuid(raw_value):
 
 
 class BookingList(APIView):
+    permission_classes = [CanManageBookings]
+
     def get(self, request):
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
@@ -203,6 +206,8 @@ class BookingList(APIView):
 
 
 class BookingDetail(APIView):
+    permission_classes = [CanManageBookings]
+
     def put(self, request, booking_id):
         tenant_id = request.user.tenant_id
         d = request.data
@@ -424,6 +429,8 @@ class BookingBulkCreate(APIView):
     """POST /api/bookings/bulk - body: { "bookings": [ {...}, {...} ] }
     All-or-nothing: if any row fails validation, none are created.
     """
+
+    permission_classes = [CanManageBookings]
 
     @idempotent("booking:bulk-create")
     def post(self, request):

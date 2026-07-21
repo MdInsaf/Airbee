@@ -2,6 +2,7 @@ from django.db import connection
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from api.permissions import IsStaff
 
 from api.views.engagement_utils import (
     build_segments,
@@ -18,6 +19,7 @@ from api.views.engagement_utils import (
 
 
 class MessagingDashboard(APIView):
+    permission_classes = [IsStaff]
     def get(self, request):
         tenant_id = request.user.tenant_id
         templates = get_message_templates(tenant_id)
@@ -46,6 +48,8 @@ class MessagingDashboard(APIView):
 
 
 class MessageTemplateList(APIView):
+    permission_classes = [IsStaff]
+
     def get(self, request):
         return Response(get_message_templates(request.user.tenant_id))
 
@@ -76,6 +80,8 @@ class MessageTemplateList(APIView):
 
 
 class MessageTemplateDetail(APIView):
+    permission_classes = [IsStaff]
+
     def put(self, request, template_id):
         tenant_id = request.user.tenant_id
         payload = request.data
@@ -118,6 +124,8 @@ class MessageTemplateDetail(APIView):
 
 
 class MessagingSendView(APIView):
+    permission_classes = [IsStaff]
+
     def post(self, request):
         tenant_id = request.user.tenant_id
         payload = request.data

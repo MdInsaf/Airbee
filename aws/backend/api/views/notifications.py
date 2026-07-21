@@ -5,6 +5,7 @@ from django.db import connection
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from api.permissions import IsStaffOrGuest
 
 
 logger = logging.getLogger("airbee.notifications")
@@ -23,6 +24,8 @@ def _serialize(row, columns):
 
 class NotificationList(APIView):
     """GET /api/notifications  POST /api/notifications/read-all"""
+
+    permission_classes = [IsStaffOrGuest]
 
     def get(self, request):
         tenant_id = request.user.tenant_id
@@ -53,6 +56,8 @@ class NotificationList(APIView):
 
 class NotificationMarkRead(APIView):
     """PUT /api/notifications/{id}/read"""
+
+    permission_classes = [IsStaffOrGuest]
 
     def put(self, request, notification_id):
         tenant_id = request.user.tenant_id

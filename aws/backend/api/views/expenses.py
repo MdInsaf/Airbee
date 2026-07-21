@@ -6,6 +6,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from api.exceptions import safe_error_response
+from api.permissions import IsStaff
 
 
 EXPENSE_CATEGORIES = {
@@ -41,6 +42,8 @@ def _parse_date(raw):
 
 
 class ExpenseList(APIView):
+    permission_classes = [IsStaff]
+
     def get(self, request):
         tenant_id = request.user.tenant_id
         params = [tenant_id]
@@ -131,6 +134,8 @@ class ExpenseList(APIView):
 
 
 class ExpenseDetail(APIView):
+    permission_classes = [IsStaff]
+
     def put(self, request, expense_id):
         tenant_id = request.user.tenant_id
         d = request.data

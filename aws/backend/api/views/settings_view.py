@@ -11,6 +11,7 @@ from django.db import connection
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from api.exceptions import safe_error_response
+from api.permissions import IsOwner, IsStaff
 
 from api.domain_automation import (
     classify_amplify_domain_state,
@@ -271,6 +272,8 @@ def _load_tenant(cur, tenant_id):
 
 
 class SettingsView(APIView):
+    permission_classes = [IsOwner]
+
     def get(self, request):
         tenant_id = request.user.tenant_id
         user_sub = request.user.sub
@@ -491,6 +494,8 @@ class SettingsView(APIView):
 
 
 class DomainVerificationView(APIView):
+    permission_classes = [IsOwner]
+
     def post(self, request):
         tenant_id = request.user.tenant_id
         provider = get_domain_automation_provider()
@@ -648,6 +653,8 @@ class DomainVerificationView(APIView):
 
 
 class RoomCategoriesView(APIView):
+    permission_classes = [IsStaff]
+
     def get(self, request):
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:

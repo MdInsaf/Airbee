@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 
 from api.network_security import SafeFetchError, fetch_ical
+from api.permissions import IsStaff
 
 try:
     from icalendar import Calendar
@@ -46,6 +47,8 @@ def _get_tenant_id(request):
 
 
 class ChannelList(APIView):
+    permission_classes = [IsStaff]
+
     def get(self, request):
         tenant_id = _get_tenant_id(request)
         with connection.cursor() as cur:
@@ -107,6 +110,8 @@ class ChannelList(APIView):
 
 
 class ChannelDetail(APIView):
+    permission_classes = [IsStaff]
+
     def delete(self, request, channel_id):
         tenant_id = _get_tenant_id(request)
         with connection.cursor() as cur:
@@ -120,6 +125,8 @@ class ChannelDetail(APIView):
 
 
 class ChannelSync(APIView):
+    permission_classes = [IsStaff]
+
     def post(self, request, channel_id):
         tenant_id = _get_tenant_id(request)
 
@@ -293,6 +300,7 @@ class ChannelICalExport(APIView):
 
 
 class ChannelICalRotate(APIView):
+    permission_classes = [IsStaff]
     """Rotate a room feed token to revoke previously shared URLs."""
 
     def post(self, request, room_id):

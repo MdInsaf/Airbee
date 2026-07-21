@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from api.idempotency import idempotent
+from api.permissions import CanManagePayments
 
 
 ALLOWED_PAYMENT_METHODS = {"cash", "card", "bank_transfer", "upi", "cheque", "other"}
@@ -40,6 +41,8 @@ def _parse_date(raw):
 
 class BookingPaymentList(APIView):
     """GET /api/bookings/{id}/payments  POST /api/bookings/{id}/payments"""
+
+    permission_classes = [CanManagePayments]
 
     def get(self, request, booking_id):
         tenant_id = request.user.tenant_id
@@ -142,6 +145,8 @@ class BookingPaymentList(APIView):
 class InvoiceList(APIView):
     """GET /api/invoices  POST /api/invoices"""
 
+    permission_classes = [CanManagePayments]
+
     def get(self, request):
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
@@ -220,6 +225,8 @@ class InvoiceList(APIView):
 
 class InvoiceDetail(APIView):
     """GET /api/invoices/{id}  PUT /api/invoices/{id}"""
+
+    permission_classes = [CanManagePayments]
 
     def get(self, request, invoice_id):
         tenant_id = request.user.tenant_id

@@ -4,6 +4,7 @@ from django.db import connection
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from api.permissions import IsStaff
 
 
 def _serialize(row, columns):
@@ -19,6 +20,8 @@ def _serialize(row, columns):
 
 
 class GuestList(APIView):
+    permission_classes = [IsStaff]
+
     def get(self, request):
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
@@ -62,6 +65,8 @@ class GuestList(APIView):
 
 
 class GuestDetail(APIView):
+    permission_classes = [IsStaff]
+
     def put(self, request, guest_id):
         tenant_id = request.user.tenant_id
         d = request.data

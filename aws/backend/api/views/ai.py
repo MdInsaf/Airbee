@@ -12,6 +12,7 @@ from django.db import connection
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from api.permissions import IsStaff
 
 
 _BEDROCK_CLIENT = None
@@ -684,6 +685,8 @@ def _openai_tool_loop(client, model, system, messages, max_tokens, tenant_id, ma
 
 
 class CopilotView(APIView):
+    permission_classes = [IsStaff]
+
     def post(self, request):
         tenant_id = request.user.tenant_id
         messages = request.data.get("messages", []) or []
@@ -751,6 +754,8 @@ class CopilotView(APIView):
 
 
 class ForecastView(APIView):
+    permission_classes = [IsStaff]
+
     def post(self, request):
         tenant_id = request.user.tenant_id
         snapshot = _fetch_property_data(tenant_id)
@@ -830,6 +835,8 @@ class ForecastView(APIView):
 
 
 class PricingView(APIView):
+    permission_classes = [IsStaff]
+
     def post(self, request):
         tenant_id = request.user.tenant_id
         room_id = request.data.get("room_id")
@@ -939,6 +946,8 @@ class PricingView(APIView):
 
 
 class GuestIntelligenceView(APIView):
+    permission_classes = [IsStaff]
+
     def post(self, request):
         tenant_id = request.user.tenant_id
         snapshot = _fetch_property_data(tenant_id)
@@ -1061,6 +1070,8 @@ class GuestIntelligenceView(APIView):
 
 
 class SentimentView(APIView):
+    permission_classes = [IsStaff]
+
     def post(self, request):
         reviews = request.data.get("reviews", [])
         if not isinstance(reviews, list):
@@ -1163,6 +1174,8 @@ class SentimentView(APIView):
 
 
 class BookingRiskView(APIView):
+    permission_classes = [IsStaff]
+
     def post(self, request):
         tenant_id = request.user.tenant_id
         today_iso = timezone.now().date().isoformat()
@@ -1358,6 +1371,8 @@ class BookingRiskView(APIView):
 
 
 class BriefingView(APIView):
+    permission_classes = [IsStaff]
+
     def post(self, request):
         tenant_id = request.user.tenant_id
         user_sub = request.user.sub

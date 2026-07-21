@@ -5,6 +5,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from api.exceptions import safe_error_response
+from api.permissions import IsStaff
 
 
 ALLOWED_PRIORITY = {"low", "normal", "high", "urgent"}
@@ -24,6 +25,8 @@ def _serialize(row, columns):
 
 
 class MaintenanceList(APIView):
+    permission_classes = [IsStaff]
+
     def get(self, request):
         tenant_id = request.user.tenant_id
         req_status = request.GET.get("status")
@@ -98,6 +101,8 @@ class MaintenanceList(APIView):
 
 
 class MaintenanceDetail(APIView):
+    permission_classes = [IsStaff]
+
     def put(self, request, req_id):
         tenant_id = request.user.tenant_id
         d = request.data

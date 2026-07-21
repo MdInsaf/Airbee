@@ -10,6 +10,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.http import HttpResponse
+from api.permissions import IsOwner
 
 
 def _safe_float(v, d=0.0):
@@ -48,6 +49,8 @@ def _parse_date(raw):
 
 class ReportsSummary(APIView):
     """GET /api/reports/summary?month=YYYY-MM"""
+
+    permission_classes = [IsOwner]
 
     def get(self, request):
         tenant_id = request.user.tenant_id
@@ -206,6 +209,8 @@ class NightAuditReport(APIView):
     revenue posted, payments collected, and outstanding balances.
     """
 
+    permission_classes = [IsOwner]
+
     def get(self, request):
         tenant_id = request.user.tenant_id
         audit_date = _parse_date(request.GET.get("date")) or timezone.now().date()
@@ -347,6 +352,8 @@ class NightAuditReport(APIView):
 class GSTReport(APIView):
     """GET /api/reports/gst?month=YYYY-MM"""
 
+    permission_classes = [IsOwner]
+
     def get(self, request):
         tenant_id = request.user.tenant_id
         month_start = _parse_month(request.GET.get("month"))
@@ -409,6 +416,8 @@ class GSTReport(APIView):
 class ExportBookings(APIView):
     """GET /api/reports/export/bookings?from=YYYY-MM-DD&to=YYYY-MM-DD"""
 
+    permission_classes = [IsOwner]
+
     def get(self, request):
         tenant_id = request.user.tenant_id
         from_date = _parse_date(request.GET.get("from"))
@@ -462,6 +471,8 @@ class ExportBookings(APIView):
 class ExportGuests(APIView):
     """GET /api/reports/export/guests"""
 
+    permission_classes = [IsOwner]
+
     def get(self, request):
         tenant_id = request.user.tenant_id
 
@@ -504,6 +515,8 @@ class ExportGuests(APIView):
 
 class ExportExpenses(APIView):
     """GET /api/reports/export/expenses?from=YYYY-MM-DD&to=YYYY-MM-DD"""
+
+    permission_classes = [IsOwner]
 
     def get(self, request):
         tenant_id = request.user.tenant_id
@@ -580,6 +593,8 @@ class ExportSummary(APIView):
     CSV with KPI totals, daily revenue breakdown, revenue by source,
     and booking status mix for the month.
     """
+
+    permission_classes = [IsOwner]
 
     def get(self, request):
         tenant_id = request.user.tenant_id
@@ -696,6 +711,8 @@ class ExportNightAudit(APIView):
     plus arrivals, departures, and in-house guest lists.
     """
 
+    permission_classes = [IsOwner]
+
     def get(self, request):
         tenant_id = request.user.tenant_id
         audit_date = _parse_date(request.GET.get("date")) or timezone.now().date()
@@ -811,6 +828,8 @@ class ExportNightAudit(APIView):
 
 class ExportGSTCsv(APIView):
     """GET /api/reports/export/gst?month=YYYY-MM"""
+
+    permission_classes = [IsOwner]
 
     def get(self, request):
         tenant_id = request.user.tenant_id

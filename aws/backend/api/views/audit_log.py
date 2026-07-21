@@ -4,6 +4,7 @@ from decimal import Decimal
 from django.db import connection
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from api.permissions import IsOwner
 
 
 logger = logging.getLogger("airbee.audit")
@@ -22,6 +23,8 @@ def _serialize(row, columns):
 
 class AuditLogList(APIView):
     """GET /api/audit-logs?entity_type=bookings&limit=50"""
+
+    permission_classes = [IsOwner]
 
     def get(self, request):
         tenant_id = request.user.tenant_id

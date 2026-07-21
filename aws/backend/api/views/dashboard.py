@@ -4,6 +4,7 @@ from django.db import connection
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from api.permissions import IsOwner
 
 
 def _shift_month(year: int, month: int, delta: int) -> tuple[int, int]:
@@ -18,6 +19,8 @@ def _month_start(year: int, month: int) -> date:
 
 
 class DashboardStats(APIView):
+    permission_classes = [IsOwner]
+
     def get(self, request):
         tenant_id = request.user.tenant_id
         today = timezone.now().date()
