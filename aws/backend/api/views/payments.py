@@ -64,9 +64,7 @@ class BookingPaymentList(APIView):
             rows = [_serialize(r, cols) for r in cur.fetchall()]
         return Response(rows)
 
-    @idempotent(
-        lambda self, request, booking_id: f"booking:{booking_id}:payment:create"
-    )
+    @idempotent("booking:payment:create")
     def post(self, request, booking_id):
         tenant_id = request.user.tenant_id
         d = request.data
