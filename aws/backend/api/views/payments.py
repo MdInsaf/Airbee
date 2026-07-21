@@ -65,10 +65,9 @@ class BookingPaymentList(APIView):
         return Response(rows)
 
     @idempotent(
-        lambda _view, _request, booking_id: f"booking:{booking_id}:payment:create"
+        lambda self, request, booking_id: f"booking:{booking_id}:payment:create"
     )
     def post(self, request, booking_id):
-        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         amount = _safe_float(d.get("amount"))

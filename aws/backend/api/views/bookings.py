@@ -86,7 +86,6 @@ class BookingList(APIView):
 
     @idempotent("booking:create")
     def post(self, request):
-        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         room_id = _normalize_uuid(d.get("room_id"))
@@ -438,7 +437,6 @@ class BookingBulkCreate(APIView):
 
     @idempotent("booking:bulk-create")
     def post(self, request):
-        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         items = request.data.get("bookings")
         if not isinstance(items, list) or not items:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from functools import wraps
-from typing import Any, Callable
+from typing import Any, Callable, Optional, Union
 
 from django.core.cache import cache
 from django.http import HttpRequest
@@ -25,7 +25,7 @@ def _idempotency_cache_key(tenant_id: str, idempotency_key: str) -> str:
     return f"idempotency:{tenant_id}:{hashlib.sha256(idempotency_key.encode()).hexdigest()}"
 
 
-def require_idempotency_key(scope: str | Callable | None = None, max_age_seconds: int = DEFAULT_MAX_AGE_SECONDS):
+def require_idempotency_key(scope: Union[str, Callable, None] = None, max_age_seconds: int = DEFAULT_MAX_AGE_SECONDS):
     """Decorator: require Idempotency-Key header for POST/PUT/PATCH/DELETE requests.
 
     Caches response and returns it if the same key is retried within max_age_seconds.

@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Tuple
 
 from django.db import connection
 from django.utils import timezone
@@ -8,7 +9,7 @@ from api.permissions import IsOwner
 from api.tenant_isolation import set_tenant_context
 
 
-def _shift_month(year: int, month: int, delta: int) -> tuple[int, int]:
+def _shift_month(year: int, month: int, delta: int) -> Tuple[int, int]:
     month_idx = month + delta
     out_year = year + (month_idx - 1) // 12
     out_month = ((month_idx - 1) % 12) + 1
