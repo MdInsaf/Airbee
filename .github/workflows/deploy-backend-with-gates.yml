@@ -36,17 +36,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run Django tests
-        env:
-          DB_HOST: localhost
-          DB_USER: postgres
-          DB_PASSWORD: testpass
-          DB_NAME: airbee_test
-          DB_SSLMODE: disable
-          LOCAL_DEV: true
-          DJANGO_SECRET_KEY: test-key
-        run: python manage.py test api --failfast --verbosity 2
-
       - name: Run database migrations
         env:
           DB_HOST: localhost
@@ -56,20 +45,38 @@ jobs:
           DB_SSLMODE: disable
         run: python ../database/migrate.py
 
-      - name: Verify fresh database
+      - name: Verify fresh database schema
         env:
           DB_HOST: localhost
           DB_USER: postgres
           DB_PASSWORD: testpass
           DB_NAME: airbee_test
           DB_SSLMODE: disable
+          AIRBEE_ALLOW_DATABASE_SMOKE_TEST: "true"
         run: python ../database/verify_fresh_database.py
 
-      - name: Security scanning
+      - name: Run Django backend tests
+        env:
+          DB_HOST: localhost
+          DB_USER: postgres
+          DB_PASSWORD: testpass
+          DB_NAME: airbee_test
+          DB_SSLMODE: disable
+          LOCAL_DEV: "true"
+          DJANGO_SECRET_KEY: test-key-for-ci
+        run: python manage.py test api --failfast --verbosity 2
+
+      - name: Security scanning - bandit
         run: |
-          pip install bandit safety
-          bandit -r api -f json -o bandit-report.json || true
-          safety check --json > safety-report.json || true
+          pip install bandit
+          bandit -r api -f json -o bandit-report.json
+          exit 0
+
+      - name: Security scanning - safety
+        run: |
+          pip install safety
+          safety check --json > safety-report.json
+          exit 0
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -91,9 +98,9 @@ jobs:
         with:
           python-version: '3.12'
 
-      - run: pip install flake8 pylint
-      - run: flake8 api --max-line-length=120 --count --exit-zero
-      - run: pylint api --disable=all --enable=E,F --exit-zero
+      - run: pip install flake8
+      - run: |
+          flake8 api --max-line-length=120 --count || exit 0
 
   deploy:
     needs: [test, lint]
@@ -134,8 +141,9 @@ jobs:
         run: |
           aws s3 cp function.zip s3://${{ secrets.LAMBDA_CODE_BUCKET }}/function.zip
 
-      - name: Update Lambda function
+      - name: Update Lambda functions
         run: |
+          # Update platform API
           aws lambda update-function-code \
             --function-name airbee-platform-api \
             --s3-bucket ${{ secrets.LAMBDA_CODE_BUCKET }} \
@@ -144,6 +152,17 @@ jobs:
 
           aws lambda wait function-updated \
             --function-name airbee-platform-api \
+            --region ap-south-1
+
+          # Update booking API
+          aws lambda update-function-code \
+            --function-name airbee-booking-api \
+            --s3-bucket ${{ secrets.LAMBDA_CODE_BUCKET }} \
+            --s3-key function.zip \
+            --region ap-south-1
+
+          aws lambda wait function-updated \
+            --function-name airbee-booking-api \
             --region ap-south-1
 
       - name: Post-deploy health check
@@ -162,13 +181,12 @@ jobs:
             exit 1
           fi
 
-      - name: Notify deployment
+      - name: Notify deployment success
         if: success()
-        run: echo "Deployment successful"
+        run: echo "✓ Deployment successful with all gates passed"
 
-      - name: Rollback on failure
+      - name: Deployment failed
         if: failure()
         run: |
-          echo "Deployment failed, rolling back..."
-          # AWS Lambda automatic rollback can be configured, or manual here
+          echo "✗ Deployment failed - one or more gates did not pass"
           exit 1

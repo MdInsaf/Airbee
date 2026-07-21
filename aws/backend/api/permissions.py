@@ -24,29 +24,24 @@ class IsOwner(AirbeePermission):
     required_role = ["owner"]
 
 
-class IsManager(AirbeePermission):
-    """Tenant owner or manager."""
-    required_role = ["owner", "manager"]
-
-
 class IsStaff(AirbeePermission):
-    """Owner, manager, or staff."""
-    required_role = ["owner", "manager", "staff"]
+    """Owner or staff."""
+    required_role = ["owner", "staff"]
 
 
 class IsStaffOrGuest(AirbeePermission):
-    """Owner, manager, staff, or guest."""
-    required_role = ["owner", "manager", "staff", "guest"]
+    """Owner, staff, or guest."""
+    required_role = ["owner", "staff", "guest"]
 
 
 class CanManageBookings(AirbeePermission):
     """Can view and manage bookings (staff+)."""
-    required_role = ["owner", "manager", "staff"]
+    required_role = ["owner", "staff"]
 
 
 class CanManagePayments(AirbeePermission):
-    """Can view and process payments (manager+)."""
-    required_role = ["owner", "manager"]
+    """Can view and process payments (owner only)."""
+    required_role = ["owner"]
 
 
 class CanManageSettings(AirbeePermission):
@@ -55,5 +50,5 @@ class CanManageSettings(AirbeePermission):
 
 
 class CanManageStaff(AirbeePermission):
-    """Can manage staff and roles (manager+)."""
-    required_role = ["owner", "manager"]
+    """Can manage staff and roles (owner only)."""
+    required_role = ["owner"]

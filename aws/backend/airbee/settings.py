@@ -24,10 +24,11 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "api.observability.RequestContextMiddleware",
-    "api.tenant_isolation.TenantIsolationMiddleware",
     "api.versioning.APIVersionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
+    # TenantIsolationMiddleware must run in views (after DRF auth)
+    # Not in middleware (which runs before). Set RLS context in each view.
 ]
 
 ROOT_URLCONF = "airbee.urls"

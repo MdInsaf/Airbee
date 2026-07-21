@@ -28,8 +28,8 @@ CREATE POLICY rls_rooms ON rooms
   USING (tenant_id = current_setting('app.tenant_id')::uuid);
 
 -- Guests: users see only guests from their tenant's bookings
-DROP POLICY IF EXISTS rls_guests ON guests;
-CREATE POLICY rls_guests ON guests
+DROP POLICY IF EXISTS rls_guests ON guest_profiles;
+CREATE POLICY rls_guests ON guest_profiles
   USING (
     id IN (
       SELECT DISTINCT guest_id FROM bookings

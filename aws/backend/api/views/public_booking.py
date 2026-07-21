@@ -17,7 +17,6 @@ from api.guest_access import (
     issue_guest_access_token,
     read_guest_access_token,
 )
-from api.idempotency import execute_idempotent
 
 
 _JSON_FIELDS = {"amenities", "images", "booking_theme", "booking_site"}
