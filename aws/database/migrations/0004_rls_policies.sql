@@ -5,13 +5,12 @@
 -- Enable RLS on all tenant-scoped tables
 ALTER TABLE bookings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rooms ENABLE ROW LEVEL SECURITY;
-ALTER TABLE guests ENABLE ROW LEVEL SECURITY;
-ALTER TABLE housekeeping ENABLE ROW LEVEL SECURITY;
+ALTER TABLE guest_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE room_pricing_rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE channels ENABLE ROW LEVEL SECURITY;
 ALTER TABLE marketing_contacts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE marketing_segments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE marketing_campaigns ENABLE ROW LEVEL SECURITY;
+ALTER TABLE campaigns ENABLE ROW LEVEL SECURITY;
 ALTER TABLE message_templates ENABLE ROW LEVEL SECURITY;
 
 -- Set tenant context in transaction (called by Django middleware)
@@ -37,16 +36,6 @@ CREATE POLICY rls_guests ON guest_profiles
     )
   );
 
--- Housekeeping: only their tenant's rooms
-DROP POLICY IF EXISTS rls_housekeeping ON housekeeping;
-CREATE POLICY rls_housekeeping ON housekeeping
-  USING (
-    room_id IN (
-      SELECT id FROM rooms
-      WHERE tenant_id = current_setting('app.tenant_id')::uuid
-    )
-  );
-
 -- Room pricing rules: only their tenant's rules
 DROP POLICY IF EXISTS rls_room_pricing_rules ON room_pricing_rules;
 CREATE POLICY rls_room_pricing_rules ON room_pricing_rules
@@ -68,8 +57,8 @@ CREATE POLICY rls_marketing_segments ON marketing_segments
   USING (tenant_id = current_setting('app.tenant_id')::uuid);
 
 -- Marketing campaigns: only their tenant's campaigns
-DROP POLICY IF EXISTS rls_marketing_campaigns ON marketing_campaigns;
-CREATE POLICY rls_marketing_campaigns ON marketing_campaigns
+DROP POLICY IF EXISTS rls_campaigns ON campaigns;
+CREATE POLICY rls_campaigns ON campaigns
   USING (tenant_id = current_setting('app.tenant_id')::uuid);
 
 -- Message templates: only their tenant's templates
