@@ -414,3 +414,539 @@ class RequestCorrelationTests(SimpleTestCase):
         # Should have generated a new valid ID
         self.assertIsNotNone(response.data["request_id"])
         self.assertNotIn("\x00", response.data["request_id"])
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Integration Tests: API → Database → Response
+# ════════════════════════════════════════════════════════════════════════════
+
+from django.test import TransactionTestCase
+from rest_framework.test import APITransactionTestCase
+from django.db import connection
+import uuid
+
+
+class BookingIntegrationTests(APITransactionTestCase):
+    """Test booking creation, retrieval, and updates with real database."""
+
+    def setUp(self):
+        """Create test tenant and room."""
+        self.tenant_id = "11111111-1111-1111-1111-111111111111"
+        self.room_id = "22222222-2222-2222-2222-222222222222"
+        self.user_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+
+        with connection.cursor() as cur:
+            # Create tenant
+            cur.execute(
+                """INSERT INTO tenants (id, name, slug, booking_site_enabled)
+                   VALUES (%s, %s, %s, %s)""",
+                [self.tenant_id, "Test Hotel", "test-hotel", True],
+            )
+            # Create room
+            cur.execute(
+                """INSERT INTO rooms (id, tenant_id, name, room_number, base_price, max_guests, status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                [self.room_id, self.tenant_id, "Room 101", "101", 100.0, 2, "available"],
+            )
+        connection.commit()
+
+        # Create authenticated client
+        self.client.force_authenticate(
+            user=MagicMock(
+                tenant_id=self.tenant_id,
+                sub=self.user_id,
+                is_authenticated=True,
+            )
+        )
+
+    def test_create_booking_persists_to_database(self):
+        """POST /api/bookings creates booking in database."""
+        booking_id = str(uuid.uuid4())
+
+        response = self.client.post(
+            "/api/bookings",
+            {
+                "id": booking_id,
+                "room_id": str(self.room_id),
+                "guest_name": "John Doe",
+                "guest_email": "john@example.com",
+                "check_in": "2026-08-01",
+                "check_out": "2026-08-03",
+                "guests": 2,
+                "status": "pending",
+                "payment_status": "unpaid",
+            },
+            format="json",
+        )
+
+        # Verify API response
+        self.assertEqual(response.status_code, 201)
+        self.assertIn("id", response.data)
+
+        # Verify database record
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT id, guest_name, status FROM bookings WHERE id = %s AND tenant_id = %s",
+                [booking_id, self.tenant_id],
+            )
+            booking = cur.fetchone()
+
+        self.assertIsNotNone(booking, "Booking should be persisted to database")
+        self.assertEqual(booking[1], "John Doe")
+        self.assertEqual(booking[2], "pending")
+
+    def test_list_bookings_filters_by_tenant(self):
+        """GET /api/bookings returns only tenant's bookings."""
+        other_tenant_id = "33333333-3333-3333-3333-333333333333"
+        other_room_id = "44444444-4444-4444-4444-444444444444"
+
+        with connection.cursor() as cur:
+            # Create other tenant's room
+            cur.execute(
+                """INSERT INTO rooms (id, tenant_id, name, room_number, base_price, max_guests, status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                [
+                    other_room_id,
+                    other_tenant_id,
+                    "Room 201",
+                    "201",
+                    120.0,
+                    2,
+                    "available",
+                ],
+            )
+            # Create bookings for both tenants
+            booking_1 = str(uuid.uuid4())
+            booking_2 = str(uuid.uuid4())
+            cur.execute(
+                """INSERT INTO bookings
+                   (id, tenant_id, room_id, guest_name, check_in, check_out, status, payment_status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                [
+                    booking_1,
+                    self.tenant_id,
+                    self.room_id,
+                    "Guest 1",
+                    "2026-08-01",
+                    "2026-08-03",
+                    "confirmed",
+                    "paid",
+                ],
+            )
+            cur.execute(
+                """INSERT INTO bookings
+                   (id, tenant_id, room_id, guest_name, check_in, check_out, status, payment_status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                [
+                    booking_2,
+                    other_tenant_id,
+                    other_room_id,
+                    "Guest 2",
+                    "2026-08-05",
+                    "2026-08-07",
+                    "confirmed",
+                    "paid",
+                ],
+            )
+
+        response = self.client.get("/api/bookings", format="json")
+
+        self.assertEqual(response.status_code, 200)
+        # Should only see our tenant's booking
+        self.assertGreaterEqual(len(response.data), 1)
+        booking_ids = [b.get("id") for b in response.data]
+        self.assertIn(booking_1, booking_ids)
+        self.assertNotIn(booking_2, booking_ids)
+
+
+class PaymentIntegrationTests(APITransactionTestCase):
+    """Test payment creation and idempotency."""
+
+    def setUp(self):
+        """Create test data."""
+        self.tenant_id = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        self.room_id = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        self.booking_id = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+        self.user_id = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+
+        with connection.cursor() as cur:
+            # Create tenant and room
+            cur.execute(
+                "INSERT INTO tenants (id, name, slug, booking_site_enabled) VALUES (%s, %s, %s, %s)",
+                [self.tenant_id, "Payment Test Hotel", "payment-hotel", True],
+            )
+            cur.execute(
+                """INSERT INTO rooms (id, tenant_id, name, room_number, base_price, max_guests, status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                [self.room_id, self.tenant_id, "Room 500", "500", 200.0, 2, "available"],
+            )
+            # Create booking
+            cur.execute(
+                """INSERT INTO bookings
+                   (id, tenant_id, room_id, guest_name, check_in, check_out, status, payment_status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                [
+                    self.booking_id,
+                    self.tenant_id,
+                    self.room_id,
+                    "Payment Guest",
+                    "2026-08-10",
+                    "2026-08-12",
+                    "confirmed",
+                    "unpaid",
+                ],
+            )
+
+        self.client.force_authenticate(
+            user=MagicMock(
+                tenant_id=self.tenant_id,
+                sub=self.user_id,
+                is_authenticated=True,
+            )
+        )
+
+    def test_create_payment_persists_to_database(self):
+        """POST /api/bookings/<id>/payments creates payment record."""
+        response = self.client.post(
+            f"/api/bookings/{self.booking_id}/payments",
+            {
+                "amount": 100.0,
+                "payment_method": "card",
+                "payment_date": "2026-08-10",
+                "notes": "Partial payment",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+
+        # Verify payment in database
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT amount, payment_method FROM booking_payments WHERE booking_id = %s",
+                [self.booking_id],
+            )
+            payment = cur.fetchone()
+
+        self.assertIsNotNone(payment)
+        self.assertEqual(float(payment[0]), 100.0)
+        self.assertEqual(payment[1], "card")
+
+
+class TenantIsolationTests(APITransactionTestCase):
+    """Test multi-tenant isolation at API level."""
+
+    def setUp(self):
+        """Create two separate tenants."""
+        self.tenant_a_id = "f1f1f1f1-f1f1-f1f1-f1f1-f1f1f1f1f1f1"
+        self.tenant_b_id = "f2f2f2f2-f2f2-f2f2-f2f2-f2f2f2f2f2f2"
+        self.room_a_id = "a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1"
+        self.room_b_id = "b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1"
+
+        with connection.cursor() as cur:
+            # Create two tenants
+            cur.execute(
+                "INSERT INTO tenants (id, name, slug, booking_site_enabled) VALUES (%s, %s, %s, %s)",
+                [self.tenant_a_id, "Hotel A", "hotel-a", True],
+            )
+            cur.execute(
+                "INSERT INTO tenants (id, name, slug, booking_site_enabled) VALUES (%s, %s, %s, %s)",
+                [self.tenant_b_id, "Hotel B", "hotel-b", True],
+            )
+            # Create room for each tenant
+            cur.execute(
+                """INSERT INTO rooms (id, tenant_id, name, room_number, base_price, max_guests, status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                [self.room_a_id, self.tenant_a_id, "Room A1", "A1", 100.0, 2, "available"],
+            )
+            cur.execute(
+                """INSERT INTO rooms (id, tenant_id, name, room_number, base_price, max_guests, status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                [self.room_b_id, self.tenant_b_id, "Room B1", "B1", 150.0, 2, "available"],
+            )
+
+    def test_tenant_cannot_see_other_rooms(self):
+        """Tenant A's API client should not see Tenant B's rooms."""
+        self.client.force_authenticate(
+            user=MagicMock(
+                tenant_id=self.tenant_a_id,
+                sub="user-a",
+                is_authenticated=True,
+            )
+        )
+
+        response = self.client.get("/api/rooms", format="json")
+
+        self.assertEqual(response.status_code, 200)
+        room_ids = [r.get("id") for r in response.data if isinstance(r, dict)]
+        # Should see own room
+        self.assertIn(self.room_a_id, room_ids)
+        # Should NOT see other tenant's room
+        self.assertNotIn(self.room_b_id, room_ids)
+# ════════════════════════════════════════════════════════════════════════════
+# Integration Tests: API → Database → Response
+# ════════════════════════════════════════════════════════════════════════════
+
+from django.test import TransactionTestCase
+from rest_framework.test import APITransactionTestCase
+from django.db import connection
+import uuid
+
+
+class BookingIntegrationTests(APITransactionTestCase):
+    """Test booking creation, retrieval, and updates with real database."""
+
+    def setUp(self):
+        """Create test tenant and room."""
+        self.tenant_id = "11111111-1111-1111-1111-111111111111"
+        self.room_id = "22222222-2222-2222-2222-222222222222"
+        self.user_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+
+        with connection.cursor() as cur:
+            # Create tenant
+            cur.execute(
+                """INSERT INTO tenants (id, name, slug, booking_site_enabled)
+                   VALUES (%s, %s, %s, %s)""",
+                [self.tenant_id, "Test Hotel", "test-hotel", True],
+            )
+            # Create room
+            cur.execute(
+                """INSERT INTO rooms (id, tenant_id, name, room_number, base_price, max_guests, status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                [self.room_id, self.tenant_id, "Room 101", "101", 100.0, 2, "available"],
+            )
+        connection.commit()
+
+        # Create authenticated client
+        self.client.force_authenticate(
+            user=MagicMock(
+                tenant_id=self.tenant_id,
+                sub=self.user_id,
+                is_authenticated=True,
+            )
+        )
+
+    def test_create_booking_persists_to_database(self):
+        """POST /api/bookings creates booking in database."""
+        booking_id = str(uuid.uuid4())
+
+        response = self.client.post(
+            "/api/bookings",
+            {
+                "id": booking_id,
+                "room_id": str(self.room_id),
+                "guest_name": "John Doe",
+                "guest_email": "john@example.com",
+                "check_in": "2026-08-01",
+                "check_out": "2026-08-03",
+                "guests": 2,
+                "status": "pending",
+                "payment_status": "unpaid",
+            },
+            format="json",
+        )
+
+        # Verify API response
+        self.assertEqual(response.status_code, 201)
+        self.assertIn("id", response.data)
+
+        # Verify database record
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT id, guest_name, status FROM bookings WHERE id = %s AND tenant_id = %s",
+                [booking_id, self.tenant_id],
+            )
+            booking = cur.fetchone()
+
+        self.assertIsNotNone(booking, "Booking should be persisted to database")
+        self.assertEqual(booking[1], "John Doe")
+        self.assertEqual(booking[2], "pending")
+
+    def test_list_bookings_filters_by_tenant(self):
+        """GET /api/bookings returns only tenant's bookings."""
+        other_tenant_id = "33333333-3333-3333-3333-333333333333"
+        other_room_id = "44444444-4444-4444-4444-444444444444"
+
+        with connection.cursor() as cur:
+            # Create other tenant's room
+            cur.execute(
+                """INSERT INTO rooms (id, tenant_id, name, room_number, base_price, max_guests, status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                [
+                    other_room_id,
+                    other_tenant_id,
+                    "Room 201",
+                    "201",
+                    120.0,
+                    2,
+                    "available",
+                ],
+            )
+            # Create bookings for both tenants
+            booking_1 = str(uuid.uuid4())
+            booking_2 = str(uuid.uuid4())
+            cur.execute(
+                """INSERT INTO bookings
+                   (id, tenant_id, room_id, guest_name, check_in, check_out, status, payment_status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                [
+                    booking_1,
+                    self.tenant_id,
+                    self.room_id,
+                    "Guest 1",
+                    "2026-08-01",
+                    "2026-08-03",
+                    "confirmed",
+                    "paid",
+                ],
+            )
+            cur.execute(
+                """INSERT INTO bookings
+                   (id, tenant_id, room_id, guest_name, check_in, check_out, status, payment_status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                [
+                    booking_2,
+                    other_tenant_id,
+                    other_room_id,
+                    "Guest 2",
+                    "2026-08-05",
+                    "2026-08-07",
+                    "confirmed",
+                    "paid",
+                ],
+            )
+
+        response = self.client.get("/api/bookings", format="json")
+
+        self.assertEqual(response.status_code, 200)
+        # Should only see our tenant's booking
+        self.assertGreaterEqual(len(response.data), 1)
+        booking_ids = [b.get("id") for b in response.data]
+        self.assertIn(booking_1, booking_ids)
+        self.assertNotIn(booking_2, booking_ids)
+
+
+class PaymentIntegrationTests(APITransactionTestCase):
+    """Test payment creation and idempotency."""
+
+    def setUp(self):
+        """Create test data."""
+        self.tenant_id = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        self.room_id = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        self.booking_id = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+        self.user_id = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+
+        with connection.cursor() as cur:
+            # Create tenant and room
+            cur.execute(
+                "INSERT INTO tenants (id, name, slug, booking_site_enabled) VALUES (%s, %s, %s, %s)",
+                [self.tenant_id, "Payment Test Hotel", "payment-hotel", True],
+            )
+            cur.execute(
+                """INSERT INTO rooms (id, tenant_id, name, room_number, base_price, max_guests, status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                [self.room_id, self.tenant_id, "Room 500", "500", 200.0, 2, "available"],
+            )
+            # Create booking
+            cur.execute(
+                """INSERT INTO bookings
+                   (id, tenant_id, room_id, guest_name, check_in, check_out, status, payment_status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                [
+                    self.booking_id,
+                    self.tenant_id,
+                    self.room_id,
+                    "Payment Guest",
+                    "2026-08-10",
+                    "2026-08-12",
+                    "confirmed",
+                    "unpaid",
+                ],
+            )
+
+        self.client.force_authenticate(
+            user=MagicMock(
+                tenant_id=self.tenant_id,
+                sub=self.user_id,
+                is_authenticated=True,
+            )
+        )
+
+    def test_create_payment_persists_to_database(self):
+        """POST /api/bookings/<id>/payments creates payment record."""
+        response = self.client.post(
+            f"/api/bookings/{self.booking_id}/payments",
+            {
+                "amount": 100.0,
+                "payment_method": "card",
+                "payment_date": "2026-08-10",
+                "notes": "Partial payment",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+
+        # Verify payment in database
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT amount, payment_method FROM booking_payments WHERE booking_id = %s",
+                [self.booking_id],
+            )
+            payment = cur.fetchone()
+
+        self.assertIsNotNone(payment)
+        self.assertEqual(float(payment[0]), 100.0)
+        self.assertEqual(payment[1], "card")
+
+
+class TenantIsolationTests(APITransactionTestCase):
+    """Test multi-tenant isolation at API level."""
+
+    def setUp(self):
+        """Create two separate tenants."""
+        self.tenant_a_id = "f1f1f1f1-f1f1-f1f1-f1f1-f1f1f1f1f1f1"
+        self.tenant_b_id = "f2f2f2f2-f2f2-f2f2-f2f2-f2f2f2f2f2f2"
+        self.room_a_id = "a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1"
+        self.room_b_id = "b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1"
+
+        with connection.cursor() as cur:
+            # Create two tenants
+            cur.execute(
+                "INSERT INTO tenants (id, name, slug, booking_site_enabled) VALUES (%s, %s, %s, %s)",
+                [self.tenant_a_id, "Hotel A", "hotel-a", True],
+            )
+            cur.execute(
+                "INSERT INTO tenants (id, name, slug, booking_site_enabled) VALUES (%s, %s, %s, %s)",
+                [self.tenant_b_id, "Hotel B", "hotel-b", True],
+            )
+            # Create room for each tenant
+            cur.execute(
+                """INSERT INTO rooms (id, tenant_id, name, room_number, base_price, max_guests, status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                [self.room_a_id, self.tenant_a_id, "Room A1", "A1", 100.0, 2, "available"],
+            )
+            cur.execute(
+                """INSERT INTO rooms (id, tenant_id, name, room_number, base_price, max_guests, status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                [self.room_b_id, self.tenant_b_id, "Room B1", "B1", 150.0, 2, "available"],
+            )
+
+    def test_tenant_cannot_see_other_rooms(self):
+        """Tenant A's API client should not see Tenant B's rooms."""
+        self.client.force_authenticate(
+            user=MagicMock(
+                tenant_id=self.tenant_a_id,
+                sub="user-a",
+                is_authenticated=True,
+            )
+        )
+
+        response = self.client.get("/api/rooms", format="json")
+
+        self.assertEqual(response.status_code, 200)
+        room_ids = [r.get("id") for r in response.data if isinstance(r, dict)]
+        # Should see own room
+        self.assertIn(self.room_a_id, room_ids)
+        # Should NOT see other tenant's room
+        self.assertNotIn(self.room_b_id, room_ids)
