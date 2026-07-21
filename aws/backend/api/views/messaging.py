@@ -3,6 +3,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from api.permissions import IsStaff
+from api.tenant_isolation import set_tenant_context
 
 from api.views.engagement_utils import (
     build_segments,
@@ -21,6 +22,7 @@ from api.views.engagement_utils import (
 class MessagingDashboard(APIView):
     permission_classes = [IsStaff]
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         templates = get_message_templates(tenant_id)
         logs = get_message_logs(tenant_id, limit=80)
@@ -51,9 +53,11 @@ class MessageTemplateList(APIView):
     permission_classes = [IsStaff]
 
     def get(self, request):
+        set_tenant_context(request)
         return Response(get_message_templates(request.user.tenant_id))
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         payload = request.data
         name = (payload.get("name") or "").strip()
@@ -83,6 +87,7 @@ class MessageTemplateDetail(APIView):
     permission_classes = [IsStaff]
 
     def put(self, request, template_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         payload = request.data
         template = get_message_template_by_id(tenant_id, template_id)
@@ -117,6 +122,7 @@ class MessageTemplateDetail(APIView):
         return Response(data)
 
     def delete(self, request, template_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
             cur.execute("DELETE FROM message_templates WHERE tenant_id = %s AND id = %s", [tenant_id, template_id])
@@ -127,6 +133,7 @@ class MessagingSendView(APIView):
     permission_classes = [IsStaff]
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         payload = request.data
 

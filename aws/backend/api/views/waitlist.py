@@ -8,6 +8,7 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny
 from api.exceptions import safe_error_response
 from api.permissions import IsStaff
+from api.tenant_isolation import set_tenant_context
 
 
 def _serialize(row, columns):
@@ -35,6 +36,7 @@ class WaitlistList(APIView):
     permission_classes = [IsStaff]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         try:
             with connection.cursor() as cur:
@@ -64,6 +66,7 @@ class WaitlistDetail(APIView):
     permission_classes = [IsStaff]
 
     def put(self, request, waitlist_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         new_status = str(request.data.get("status") or "").strip()
         allowed = {"waiting", "notified", "booked", "expired"}
@@ -84,6 +87,7 @@ class WaitlistDetail(APIView):
         return Response({"success": True})
 
     def delete(self, request, waitlist_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
             cur.execute(
@@ -99,6 +103,7 @@ class PublicWaitlistCreate(APIView):
     throttle_scope = "public_write"
 
     def post(self, request):
+        set_tenant_context(request)
         d = request.data
         tenant_id = d.get("tenant_id")
         room_id = d.get("room_id")

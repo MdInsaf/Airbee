@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from api.exceptions import safe_error_response
 from api.permissions import IsStaff
+from api.tenant_isolation import set_tenant_context
 
 ALLOWED_ROOM_STATUS = {"available", "maintenance", "unavailable"}
 ALLOWED_HOUSEKEEPING_STATUS = {"clean", "dirty", "in_progress", "inspecting"}
@@ -69,6 +70,7 @@ class RoomList(APIView):
     permission_classes = [IsStaff]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
             cur.execute(
@@ -87,6 +89,7 @@ class RoomList(APIView):
         return Response(rows)
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = _normalize_room_payload(request.data)
         if not d["name"]:
@@ -147,6 +150,7 @@ class RoomDetail(APIView):
     permission_classes = [IsStaff]
 
     def put(self, request, room_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = _normalize_room_payload(request.data, partial=True)
         if d["status"] and d["status"] not in ALLOWED_ROOM_STATUS:
@@ -189,6 +193,7 @@ class RoomDetail(APIView):
         return Response({"success": True})
 
     def delete(self, request, room_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
             cur.execute(

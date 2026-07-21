@@ -6,6 +6,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from api.permissions import IsStaffOrGuest
+from api.tenant_isolation import set_tenant_context
 
 
 logger = logging.getLogger("airbee.notifications")
@@ -28,6 +29,7 @@ class NotificationList(APIView):
     permission_classes = [IsStaffOrGuest]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         try:
             with connection.cursor() as cur:
@@ -60,6 +62,7 @@ class NotificationMarkRead(APIView):
     permission_classes = [IsStaffOrGuest]
 
     def put(self, request, notification_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         try:
             with connection.cursor() as cur:

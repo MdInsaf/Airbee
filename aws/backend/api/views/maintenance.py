@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from api.exceptions import safe_error_response
 from api.permissions import IsStaff
+from api.tenant_isolation import set_tenant_context
 
 
 ALLOWED_PRIORITY = {"low", "normal", "high", "urgent"}
@@ -28,6 +29,7 @@ class MaintenanceList(APIView):
     permission_classes = [IsStaff]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         req_status = request.GET.get("status")
         params = [tenant_id]
@@ -59,6 +61,7 @@ class MaintenanceList(APIView):
             raise
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         title = (d.get("title") or "").strip()
@@ -104,6 +107,7 @@ class MaintenanceDetail(APIView):
     permission_classes = [IsStaff]
 
     def put(self, request, req_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         new_status = d.get("status")
@@ -149,6 +153,7 @@ class MaintenanceDetail(APIView):
         return Response({"success": True})
 
     def delete(self, request, req_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
             cur.execute(

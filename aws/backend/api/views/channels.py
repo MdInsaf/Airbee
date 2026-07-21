@@ -9,6 +9,7 @@ from rest_framework.response import Response
 
 from api.network_security import SafeFetchError, fetch_ical
 from api.permissions import IsStaff
+from api.tenant_isolation import set_tenant_context
 
 try:
     from icalendar import Calendar
@@ -50,6 +51,7 @@ class ChannelList(APIView):
     permission_classes = [IsStaff]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = _get_tenant_id(request)
         with connection.cursor() as cur:
             cur.execute(
@@ -69,6 +71,7 @@ class ChannelList(APIView):
         return Response({"channels": channels})
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = _get_tenant_id(request)
         data = request.data
         name = (data.get("name") or "").strip()
@@ -113,6 +116,7 @@ class ChannelDetail(APIView):
     permission_classes = [IsStaff]
 
     def delete(self, request, channel_id):
+        set_tenant_context(request)
         tenant_id = _get_tenant_id(request)
         with connection.cursor() as cur:
             cur.execute(
@@ -128,6 +132,7 @@ class ChannelSync(APIView):
     permission_classes = [IsStaff]
 
     def post(self, request, channel_id):
+        set_tenant_context(request)
         tenant_id = _get_tenant_id(request)
 
         if not ICAL_AVAILABLE:
@@ -245,6 +250,7 @@ class ChannelICalExport(APIView):
     throttle_scope = "ical_export"
 
     def get(self, request, feed_token):
+        set_tenant_context(request)
         with connection.cursor() as cur:
             cur.execute(
                 """
@@ -304,6 +310,7 @@ class ChannelICalRotate(APIView):
     """Rotate a room feed token to revoke previously shared URLs."""
 
     def post(self, request, room_id):
+        set_tenant_context(request)
         tenant_id = _get_tenant_id(request)
         try:
             normalized_room_id = str(uuid.UUID(str(room_id)))

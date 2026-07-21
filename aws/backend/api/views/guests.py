@@ -5,6 +5,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from api.permissions import IsStaff
+from api.tenant_isolation import set_tenant_context
 
 
 def _serialize(row, columns):
@@ -23,6 +24,7 @@ class GuestList(APIView):
     permission_classes = [IsStaff]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
             cur.execute(
@@ -39,6 +41,7 @@ class GuestList(APIView):
         return Response(rows)
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         guest_id = str(uuid.uuid4())
@@ -68,6 +71,7 @@ class GuestDetail(APIView):
     permission_classes = [IsStaff]
 
     def put(self, request, guest_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         with connection.cursor() as cur:
@@ -97,6 +101,7 @@ class GuestDetail(APIView):
         return Response(_serialize(row, cols))
 
     def delete(self, request, guest_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
             cur.execute(

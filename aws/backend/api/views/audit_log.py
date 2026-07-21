@@ -5,6 +5,7 @@ from django.db import connection
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from api.permissions import IsOwner
+from api.tenant_isolation import set_tenant_context
 
 
 logger = logging.getLogger("airbee.audit")
@@ -27,6 +28,7 @@ class AuditLogList(APIView):
     permission_classes = [IsOwner]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         entity_type = request.GET.get("entity_type")
         limit = min(int(request.GET.get("limit") or 100), 200)

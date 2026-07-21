@@ -27,6 +27,7 @@ class StaffList(APIView):
     permission_classes = [CanManageStaff]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         try:
             with connection.cursor() as cur:
@@ -47,6 +48,7 @@ class StaffList(APIView):
             raise
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         name = (d.get("name") or "").strip()
@@ -91,6 +93,7 @@ class StaffDetail(APIView):
     permission_classes = [CanManageStaff]
 
     def put(self, request, staff_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         role = d.get("role")
@@ -134,6 +137,7 @@ class StaffDetail(APIView):
         return Response({"success": True})
 
     def delete(self, request, staff_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
             cur.execute(

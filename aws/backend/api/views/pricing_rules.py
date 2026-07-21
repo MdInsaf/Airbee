@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from api.exceptions import safe_error_response
 from api.permissions import IsStaff
+from api.tenant_isolation import set_tenant_context
 
 
 def _serialize(row, columns):
@@ -41,6 +42,7 @@ class PricingRuleList(APIView):
     permission_classes = [IsStaff]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         room_id = request.GET.get("room_id")
         params = [tenant_id]
@@ -67,6 +69,7 @@ class PricingRuleList(APIView):
         return Response(rows)
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         name = (d.get("name") or "").strip()
@@ -121,6 +124,7 @@ class PricingRuleDetail(APIView):
     permission_classes = [IsStaff]
 
     def put(self, request, rule_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         try:
@@ -165,6 +169,7 @@ class PricingRuleDetail(APIView):
         return Response({"success": True})
 
     def delete(self, request, rule_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
             cur.execute(

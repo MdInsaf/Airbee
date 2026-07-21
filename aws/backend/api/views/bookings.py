@@ -9,6 +9,7 @@ from rest_framework import status
 
 from api.idempotency import idempotent
 from api.permissions import CanManageBookings
+from api.tenant_isolation import set_tenant_context
 
 
 logger = logging.getLogger("airbee.bookings")
@@ -64,6 +65,7 @@ class BookingList(APIView):
     permission_classes = [CanManageBookings]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
             cur.execute(
@@ -84,6 +86,7 @@ class BookingList(APIView):
 
     @idempotent("booking:create")
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         room_id = _normalize_uuid(d.get("room_id"))
@@ -209,6 +212,7 @@ class BookingDetail(APIView):
     permission_classes = [CanManageBookings]
 
     def put(self, request, booking_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         new_status = d.get("status")
@@ -434,6 +438,7 @@ class BookingBulkCreate(APIView):
 
     @idempotent("booking:bulk-create")
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         items = request.data.get("bookings")
         if not isinstance(items, list) or not items:

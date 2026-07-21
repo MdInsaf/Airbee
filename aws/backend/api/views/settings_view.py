@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from api.exceptions import safe_error_response
 from api.permissions import IsOwner, IsStaff
+from api.tenant_isolation import set_tenant_context
 
 from api.domain_automation import (
     classify_amplify_domain_state,
@@ -275,6 +276,7 @@ class SettingsView(APIView):
     permission_classes = [IsOwner]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         user_sub = request.user.sub
         with connection.cursor() as cur:

@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.http import HttpResponse
 from api.permissions import IsOwner
+from api.tenant_isolation import set_tenant_context
 
 
 def _safe_float(v, d=0.0):
@@ -53,6 +54,7 @@ class ReportsSummary(APIView):
     permission_classes = [IsOwner]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         month_start = _parse_month(request.GET.get("month"))
         # End of month
@@ -212,6 +214,7 @@ class NightAuditReport(APIView):
     permission_classes = [IsOwner]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         audit_date = _parse_date(request.GET.get("date")) or timezone.now().date()
 
@@ -355,6 +358,7 @@ class GSTReport(APIView):
     permission_classes = [IsOwner]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         month_start = _parse_month(request.GET.get("month"))
         if month_start.month == 12:
@@ -419,6 +423,7 @@ class ExportBookings(APIView):
     permission_classes = [IsOwner]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         from_date = _parse_date(request.GET.get("from"))
         to_date = _parse_date(request.GET.get("to"))
@@ -474,6 +479,7 @@ class ExportGuests(APIView):
     permission_classes = [IsOwner]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
 
         with connection.cursor() as cur:
@@ -519,6 +525,7 @@ class ExportExpenses(APIView):
     permission_classes = [IsOwner]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         from_date = _parse_date(request.GET.get("from"))
         to_date = _parse_date(request.GET.get("to"))
@@ -597,6 +604,7 @@ class ExportSummary(APIView):
     permission_classes = [IsOwner]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         month_start = _parse_month(request.GET.get("month"))
         if month_start.month == 12:
@@ -714,6 +722,7 @@ class ExportNightAudit(APIView):
     permission_classes = [IsOwner]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         audit_date = _parse_date(request.GET.get("date")) or timezone.now().date()
 
@@ -832,6 +841,7 @@ class ExportGSTCsv(APIView):
     permission_classes = [IsOwner]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         month_start = _parse_month(request.GET.get("month"))
         if month_start.month == 12:

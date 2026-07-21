@@ -13,6 +13,7 @@ from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from api.permissions import IsStaff
+from api.tenant_isolation import set_tenant_context
 
 
 _BEDROCK_CLIENT = None
@@ -688,6 +689,7 @@ class CopilotView(APIView):
     permission_classes = [IsStaff]
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         messages = request.data.get("messages", []) or []
         # Shape messages for Anthropic/OpenAI APIs (only user/assistant roles, content as string).
@@ -757,6 +759,7 @@ class ForecastView(APIView):
     permission_classes = [IsStaff]
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         snapshot = _fetch_property_data(tenant_id)
         bookings = snapshot["bookings"]
@@ -838,6 +841,7 @@ class PricingView(APIView):
     permission_classes = [IsStaff]
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         room_id = request.data.get("room_id")
         snapshot = _fetch_property_data(tenant_id)
@@ -949,6 +953,7 @@ class GuestIntelligenceView(APIView):
     permission_classes = [IsStaff]
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         snapshot = _fetch_property_data(tenant_id)
         guests = snapshot["guests"]
@@ -1073,6 +1078,7 @@ class SentimentView(APIView):
     permission_classes = [IsStaff]
 
     def post(self, request):
+        set_tenant_context(request)
         reviews = request.data.get("reviews", [])
         if not isinstance(reviews, list):
             reviews = []
@@ -1177,6 +1183,7 @@ class BookingRiskView(APIView):
     permission_classes = [IsStaff]
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         today_iso = timezone.now().date().isoformat()
 
@@ -1374,6 +1381,7 @@ class BriefingView(APIView):
     permission_classes = [IsStaff]
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         user_sub = request.user.sub
         today = timezone.now().date()

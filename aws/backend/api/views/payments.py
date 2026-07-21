@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from api.idempotency import idempotent
+from api.tenant_isolation import set_tenant_context
 from api.permissions import CanManagePayments
 
 
@@ -45,6 +46,7 @@ class BookingPaymentList(APIView):
     permission_classes = [CanManagePayments]
 
     def get(self, request, booking_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
             cur.execute(
@@ -66,6 +68,7 @@ class BookingPaymentList(APIView):
         lambda _view, _request, booking_id: f"booking:{booking_id}:payment:create"
     )
     def post(self, request, booking_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         amount = _safe_float(d.get("amount"))
@@ -148,6 +151,7 @@ class InvoiceList(APIView):
     permission_classes = [CanManagePayments]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
             cur.execute(
@@ -167,6 +171,7 @@ class InvoiceList(APIView):
         return Response(rows)
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         booking_id = d.get("booking_id")
@@ -229,6 +234,7 @@ class InvoiceDetail(APIView):
     permission_classes = [CanManagePayments]
 
     def get(self, request, invoice_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
             cur.execute(
@@ -256,6 +262,7 @@ class InvoiceDetail(APIView):
         return Response(_serialize(row, cols))
 
     def put(self, request, invoice_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         with connection.cursor() as cur:

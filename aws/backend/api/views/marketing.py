@@ -6,6 +6,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from api.permissions import IsStaff
+from api.tenant_isolation import set_tenant_context
 
 from api.views.engagement_utils import (
     _serialize,
@@ -38,6 +39,7 @@ class MarketingDashboard(APIView):
     permission_classes = [IsStaff]
 
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         contacts = get_marketing_contacts(tenant_id)
         segments = build_segments(tenant_id)
@@ -71,9 +73,11 @@ class MarketingContactList(APIView):
     permission_classes = [IsStaff]
 
     def get(self, request):
+        set_tenant_context(request)
         return Response(get_marketing_contacts(request.user.tenant_id))
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         payload = request.data
         name = (payload.get("name") or "").strip() or None
@@ -113,9 +117,11 @@ class MarketingContactList(APIView):
 class MarketingSegmentList(APIView):
     permission_classes = [IsStaff]
     def get(self, request):
+        set_tenant_context(request)
         return Response(get_custom_segments(request.user.tenant_id))
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         payload = request.data
         name = (payload.get("name") or "").strip()
@@ -132,6 +138,7 @@ class MarketingSegmentList(APIView):
 class MarketingSegmentDetail(APIView):
     permission_classes = [IsStaff]
     def put(self, request, segment_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         payload = request.data
         name = (payload.get("name") or "").strip()
@@ -147,6 +154,7 @@ class MarketingSegmentDetail(APIView):
         return Response(segment)
 
     def delete(self, request, segment_id):
+        set_tenant_context(request)
         deleted = archive_custom_segment(segment_id, request.user.tenant_id)
         if not deleted:
             return Response({"error": "Segment not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -157,6 +165,7 @@ class CampaignList(APIView):
     permission_classes = [IsStaff]
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         payload = request.data
         name = (payload.get("name") or "").strip()
@@ -220,6 +229,7 @@ class CampaignList(APIView):
 class CampaignDetail(APIView):
     permission_classes = [IsStaff]
     def put(self, request, campaign_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         payload = request.data
         existing = next((campaign for campaign in get_campaigns(tenant_id) if campaign.get("id") == campaign_id), None)
@@ -289,6 +299,7 @@ class CampaignLaunch(APIView):
     permission_classes = [IsStaff]
 
     def post(self, request, campaign_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         campaign = next((item for item in get_campaigns(tenant_id) if item.get("id") == campaign_id), None)
         if not campaign:
