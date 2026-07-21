@@ -6,6 +6,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 
+from api.idempotency import idempotent
+
 
 ALLOWED_PAYMENT_METHODS = {"cash", "card", "bank_transfer", "upi", "cheque", "other"}
 
@@ -57,6 +59,9 @@ class BookingPaymentList(APIView):
             rows = [_serialize(r, cols) for r in cur.fetchall()]
         return Response(rows)
 
+    @idempotent(
+        lambda _view, _request, booking_id: f"booking:{booking_id}:payment:create"
+    )
     def post(self, request, booking_id):
         tenant_id = request.user.tenant_id
         d = request.data
@@ -96,11 +101,23 @@ class BookingPaymentList(APIView):
 
             cur.execute(
                 """
-                INSERT INTO booking_payments (id, booking_id, amount, payment_method, payment_date, notes)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                RETURNING id, booking_id, amount, payment_method, payment_date, notes, created_at
+                INSERT INTO booking_payments (
+                    id, tenant_id, booking_id, amount, payment_method, payment_date, received_by, notes
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id, booking_id, amount, payment_method, payment_date,
+                          received_at, received_by, notes, created_at
                 """,
-                [payment_id, booking_id, amount, payment_method, payment_date, notes],
+                [
+                    payment_id,
+                    tenant_id,
+                    booking_id,
+                    amount,
+                    payment_method,
+                    payment_date,
+                    request.user.sub,
+                    notes,
+                ],
             )
             pay_cols = [c[0] for c in cur.description]
             payment = _serialize(cur.fetchone(), pay_cols)
@@ -176,11 +193,24 @@ class InvoiceList(APIView):
 
             cur.execute(
                 """
-                INSERT INTO invoices (id, booking_id, invoice_number, amount, status, due_date, notes)
-                VALUES (%s, %s, %s, %s, 'draft', %s, %s)
-                RETURNING id, booking_id, invoice_number, amount, status, issued_at, due_date, paid_at, notes
+                INSERT INTO invoices (
+                    id, tenant_id, booking_id, invoice_number, amount,
+                    total_amount, status, due_date, notes
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, 'draft', %s, %s)
+                RETURNING id, booking_id, invoice_number, amount, total_amount,
+                          status, issued_at, due_date, paid_at, notes
                 """,
-                [invoice_id, booking_id, invoice_number, amount, due_date, notes],
+                [
+                    invoice_id,
+                    tenant_id,
+                    booking_id,
+                    invoice_number,
+                    amount,
+                    amount,
+                    due_date,
+                    notes,
+                ],
             )
             cols = [c[0] for c in cur.description]
             invoice = _serialize(cur.fetchone(), cols)

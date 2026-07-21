@@ -24,6 +24,8 @@ param(
     [string]$BedrockModelId,
     [string]$BedrockFallbackModelId,
     [string]$AwsBearerTokenBedrock,
+    [double]$ThrottleRateLimit = 50,
+    [int]$ThrottleBurstLimit = 100,
     [switch]$WriteFrontendEnvFiles
 )
 
@@ -220,7 +222,7 @@ function Ensure-HttpApi {
         $created = python -m awscli apigatewayv2 create-api `
             --name $Name `
             --protocol-type HTTP `
-            --cors-configuration 'AllowOrigins=["*"],AllowMethods=["*"],AllowHeaders=["Authorization","Content-Type"]' `
+            --cors-configuration 'AllowOrigins=["*"],AllowMethods=["*"],AllowHeaders=["Authorization","Content-Type","Idempotency-Key","X-Request-ID"],ExposeHeaders=["X-Request-ID","Idempotency-Key","Idempotency-Replayed"]' `
             --region $Region `
             --output json | ConvertFrom-Json
         $api = $created
@@ -231,7 +233,7 @@ function Ensure-HttpApi {
 
     python -m awscli apigatewayv2 update-api `
         --api-id $api.ApiId `
-        --cors-configuration 'AllowOrigins=["*"],AllowMethods=["*"],AllowHeaders=["Authorization","Content-Type"]' `
+        --cors-configuration 'AllowOrigins=["*"],AllowMethods=["*"],AllowHeaders=["Authorization","Content-Type","Idempotency-Key","X-Request-ID"],ExposeHeaders=["X-Request-ID","Idempotency-Key","Idempotency-Replayed"]' `
         --region $Region `
         --output json | Out-Null
 
@@ -348,6 +350,7 @@ function Ensure-Stage {
             --api-id $ApiId `
             --stage-name '$default' `
             --auto-deploy `
+            --default-route-settings ("ThrottlingBurstLimit={0},ThrottlingRateLimit={1}" -f $ThrottleBurstLimit, $ThrottleRateLimit) `
             --region $Region `
             --output json | Out-Null
     } else {
@@ -355,6 +358,7 @@ function Ensure-Stage {
             --api-id $ApiId `
             --stage-name '$default' `
             --auto-deploy `
+            --default-route-settings ("ThrottlingBurstLimit={0},ThrottlingRateLimit={1}" -f $ThrottleBurstLimit, $ThrottleRateLimit) `
             --region $Region `
             --output json | Out-Null
     }
@@ -412,15 +416,15 @@ $PlatformHosts = Normalize-HostList -Value (Get-OrDefault -CurrentValue (Normali
 $AmplifyAppId = Get-OrDefault -CurrentValue $AmplifyAppId -FallbackValue (Get-MapValue -Map $sourceEnv -Key "AMPLIFY_APP_ID")
 $AmplifyBranch = Get-OrDefault -CurrentValue $AmplifyBranch -FallbackValue (Get-MapValue -Map $sourceEnv -Key "AMPLIFY_BRANCH") -DefaultValue "main"
 $AmplifyRegion = Get-OrDefault -CurrentValue $AmplifyRegion -FallbackValue (Get-MapValue -Map $sourceEnv -Key "AMPLIFY_REGION") -DefaultValue $Region
-$DjangoSecretKey = Get-OrDefault -CurrentValue $DjangoSecretKey -FallbackValue (Get-MapValue -Map $sourceEnv -Key "DJANGO_SECRET_KEY") -DefaultValue "airbee-split-backend-secret"
+$DjangoSecretKey = Get-OrDefault -CurrentValue $DjangoSecretKey -FallbackValue (Get-MapValue -Map $sourceEnv -Key "DJANGO_SECRET_KEY")
 $BedrockRegion = Get-OrDefault -CurrentValue $BedrockRegion -FallbackValue (Get-MapValue -Map $sourceEnv -Key "BEDROCK_REGION") -DefaultValue $Region
 $BedrockModelId = Get-OrDefault -CurrentValue $BedrockModelId -FallbackValue (Get-MapValue -Map $sourceEnv -Key "BEDROCK_MODEL_ID") -DefaultValue "anthropic.claude-3-haiku-20240307-v1:0"
 $BedrockFallbackModelId = Get-OrDefault -CurrentValue $BedrockFallbackModelId -FallbackValue (Get-MapValue -Map $sourceEnv -Key "BEDROCK_FALLBACK_MODEL_ID") -DefaultValue "apac.amazon.nova-lite-v1:0"
 $AwsBearerTokenBedrock = Get-OrDefault -CurrentValue $AwsBearerTokenBedrock -FallbackValue (Get-MapValue -Map $sourceEnv -Key "AWS_BEARER_TOKEN_BEDROCK")
 $CognitoClientId = Ensure-CognitoClientId -UserPoolId $CognitoUserPoolId -ClientId $CognitoClientId
 
-if (-not $DbHost -or -not $DbPassword -or -not $LambdaRoleArn -or -not $CognitoUserPoolId -or -not $CognitoClientId) {
-    throw "Missing required shared settings. Ensure the source lambda exists or pass DbHost, DbPassword, LambdaRoleArn, CognitoUserPoolId, and CognitoClientId explicitly."
+if (-not $DbHost -or -not $DbPassword -or -not $LambdaRoleArn -or -not $CognitoUserPoolId -or -not $CognitoClientId -or -not $DjangoSecretKey) {
+    throw "Missing required shared settings. Ensure the source lambda exists or pass DbHost, DbPassword, LambdaRoleArn, CognitoUserPoolId, CognitoClientId, and DjangoSecretKey explicitly."
 }
 
 Ensure-BackendPackage
@@ -431,11 +435,14 @@ $sharedEnv = [ordered]@{
     DB_NAME = $DbName
     DB_USER = $DbUser
     DB_PASSWORD = $DbPassword
+    DB_CONN_MAX_AGE = "0"
     COGNITO_USER_POOL_ID = $CognitoUserPoolId
+    COGNITO_CLIENT_ID = $CognitoClientId
     BEDROCK_REGION = $BedrockRegion
     BEDROCK_MODEL_ID = $BedrockModelId
     BEDROCK_FALLBACK_MODEL_ID = $BedrockFallbackModelId
     DJANGO_SECRET_KEY = $DjangoSecretKey
+    LOG_LEVEL = "INFO"
 }
 if ($PublicBaseDomain) { $sharedEnv["PUBLIC_BASE_DOMAIN"] = $PublicBaseDomain }
 if ($PublicCnameTarget) { $sharedEnv["PUBLIC_CNAME_TARGET"] = $PublicCnameTarget }

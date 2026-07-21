@@ -5,6 +5,7 @@ from django.db import connection
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from api.exceptions import safe_error_response
 
 
 EXPENSE_CATEGORIES = {
@@ -121,7 +122,11 @@ class ExpenseList(APIView):
                 cols = [c[0] for c in cur.description]
                 row = _serialize(cur.fetchone(), cols)
         except Exception as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return safe_error_response(
+                "Could not create expense",
+                code="EXPENSE_CREATE_FAILED",
+                exc=exc,
+            )
         return Response(row, status=status.HTTP_201_CREATED)
 
 
@@ -157,7 +162,11 @@ class ExpenseDetail(APIView):
                 if not cur.fetchone():
                     return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return safe_error_response(
+                "Could not update expense",
+                code="EXPENSE_UPDATE_FAILED",
+                exc=exc,
+            )
         return Response({"success": True})
 
     def delete(self, request, expense_id):

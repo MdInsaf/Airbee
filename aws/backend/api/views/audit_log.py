@@ -1,9 +1,12 @@
 import uuid
+import logging
 from decimal import Decimal
 from django.db import connection
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
+
+logger = logging.getLogger("airbee.audit")
 
 def _serialize(row, columns):
     obj = dict(zip(columns, row))
@@ -47,7 +50,8 @@ class AuditLogList(APIView):
                 rows = [_serialize(r, cols) for r in cur.fetchall()]
             return Response(rows)
         except Exception:
-            return Response([])
+            logger.exception("audit_log_read_failed")
+            raise
 
 
 def log_action(tenant_id, action, entity_type, entity_id=None, old_value=None, new_value=None, request=None):
@@ -84,4 +88,10 @@ def log_action(tenant_id, action, entity_type, entity_id=None, old_value=None, n
                 ],
             )
     except Exception:
-        pass
+        logger.exception(
+            "audit_log_write_failed",
+            extra={
+                "entity_type": entity_type,
+                "entity_id": str(entity_id or ""),
+            },
+        )

@@ -26,12 +26,7 @@ interface Channel {
 interface Room {
   id: string;
   name: string;
-}
-
-interface SettingsResponse {
-  tenant: {
-    slug?: string | null;
-  } | null;
+  ical_feed_token: string;
 }
 
 const PLATFORM_LABELS: Record<string, string> = {
@@ -72,7 +67,6 @@ export default function Channels() {
   const { toast } = useToast();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [tenantSlug, setTenantSlug] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -87,8 +81,6 @@ export default function Channels() {
       setChannels(chRes.channels);
       setRooms(rmRes);
 
-      const settings = await api.get<SettingsResponse>("/api/settings");
-      setTenantSlug(settings.tenant?.slug || null);
     } catch {
       toast({ title: "Failed to load channels", variant: "destructive" });
     } finally {
@@ -143,10 +135,21 @@ export default function Channels() {
     }
   };
 
-  const getICalExportUrl = (roomId: string) => {
+  const getICalExportUrl = (feedToken: string) => {
     const apiBase = import.meta.env.VITE_API_URL || "";
-    if (!tenantSlug) return "";
-    return `${apiBase}/public/ical/${encodeURIComponent(tenantSlug)}/${roomId}.ics`;
+    if (!feedToken) return "";
+    return `${apiBase}/public/ical/${encodeURIComponent(feedToken)}.ics`;
+  };
+
+  const rotateICalFeed = async (room: Room) => {
+    if (!window.confirm(`Rotate the feed URL for ${room.name}? Existing OTA subscriptions will stop working.`)) return;
+    try {
+      await api.post(`/api/channels/ical-feeds/${room.id}/rotate`, {});
+      await load();
+      toast({ title: "iCal feed URL rotated" });
+    } catch {
+      toast({ title: "Could not rotate iCal feed", variant: "destructive" });
+    }
   };
 
   return (
@@ -230,17 +233,24 @@ export default function Channels() {
               <div key={room.id} className="flex items-center gap-3 p-2 bg-muted rounded-md">
                 <span className="text-sm font-medium w-32 shrink-0">{room.name}</span>
                 <code className="text-xs flex-1 truncate text-muted-foreground">
-                  {getICalExportUrl(room.id)}
+                  {getICalExportUrl(room.ical_feed_token)}
                 </code>
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => {
-                    navigator.clipboard.writeText(getICalExportUrl(room.id));
+                    navigator.clipboard.writeText(getICalExportUrl(room.ical_feed_token));
                     toast({ title: "Copied to clipboard" });
                   }}
                 >
                   Copy
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => rotateICalFeed(room)}
+                >
+                  Rotate
                 </Button>
               </div>
             ))}

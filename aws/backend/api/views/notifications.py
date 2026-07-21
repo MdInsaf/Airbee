@@ -1,10 +1,13 @@
 import uuid
+import logging
 from decimal import Decimal
 from django.db import connection
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 
+
+logger = logging.getLogger("airbee.notifications")
 
 def _serialize(row, columns):
     obj = dict(zip(columns, row))
@@ -45,7 +48,7 @@ class NotificationList(APIView):
                 unread_count = int((cur.fetchone() or [0])[0] or 0)
             return Response({"notifications": rows, "unread_count": unread_count})
         except Exception:
-            return Response({"notifications": [], "unread_count": 0})
+            raise
 
 
 class NotificationMarkRead(APIView):
@@ -66,7 +69,7 @@ class NotificationMarkRead(APIView):
                         [notification_id, tenant_id],
                     )
         except Exception:
-            pass
+            raise
         return Response({"success": True})
 
 
@@ -82,4 +85,4 @@ def create_notification(tenant_id, notif_type, title, message, related_id=None, 
                 [str(uuid.uuid4()), tenant_id, notif_type, title, message, related_id, related_type],
             )
     except Exception:
-        pass
+        logger.exception("notification_create_failed")

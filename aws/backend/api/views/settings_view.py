@@ -10,6 +10,7 @@ import dns.resolver
 from django.db import connection
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from api.exceptions import safe_error_response
 
 from api.domain_automation import (
     classify_amplify_domain_state,
@@ -727,8 +728,11 @@ class RoomCategoriesView(APIView):
                     )
                     room_ids.append(room_id)
         except Exception as exc:
-            print(f"Category create error: {exc}")
-            return Response({"error": f"Could not create category: {exc}"}, status=400)
+            return safe_error_response(
+                "Could not create room category",
+                code="ROOM_CATEGORY_CREATE_FAILED",
+                exc=exc,
+            )
 
         return Response({
             "id": category_id,

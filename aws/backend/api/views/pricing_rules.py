@@ -5,6 +5,7 @@ from django.db import connection
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from api.exceptions import safe_error_response
 
 
 def _serialize(row, columns):
@@ -102,7 +103,11 @@ class PricingRuleList(APIView):
                 cols = [c[0] for c in cur.description]
                 row = _serialize(cur.fetchone(), cols)
         except Exception as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return safe_error_response(
+                "Could not create pricing rule",
+                code="PRICING_RULE_CREATE_FAILED",
+                exc=exc,
+            )
 
         return Response(row, status=status.HTTP_201_CREATED)
 
@@ -147,7 +152,11 @@ class PricingRuleDetail(APIView):
                 if not cur.fetchone():
                     return Response({"error": "Rule not found"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return safe_error_response(
+                "Could not update pricing rule",
+                code="PRICING_RULE_UPDATE_FAILED",
+                exc=exc,
+            )
         return Response({"success": True})
 
     def delete(self, request, rule_id):

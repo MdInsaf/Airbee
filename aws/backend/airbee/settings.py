@@ -24,6 +24,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "api.observability.RequestContextMiddleware",
+    "api.tenant_isolation.TenantIsolationMiddleware",
     "api.versioning.APIVersionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",

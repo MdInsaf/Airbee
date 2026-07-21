@@ -16,6 +16,7 @@ venv/
 # Deployment packaging outputs
 aws/backend/package/
 aws/backend/function.zip
+aws/backend/zappa_settings.json
 aws/cognito-trigger-py/package/
 aws/cognito-trigger-py/function.zip
 

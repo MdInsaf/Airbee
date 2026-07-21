@@ -8,18 +8,14 @@ urlpatterns = [
 ]
 
 if settings.API_SURFACE in {"all", "platform"}:
-    # Support both versioned and non-versioned paths for backward compatibility
-    # /api/bookings → uses Accept-Version header or defaults to v1
-    # /api/v1/bookings → explicitly v1
-    # /api/v2/bookings → explicitly v2
+    # API v1 only. Version detection and future v2 support via Accept-Version header.
+    # Do NOT advertise v2 until genuine separate serializers/routes exist.
     urlpatterns.extend(
         [
             path("api/", include("api.urls")),
             path("api/v1/", include("api.urls")),
-            path("api/v2/", include("api.urls")),
             path("ai/", include("api.urls_ai")),
             path("ai/v1/", include("api.urls_ai")),
-            path("ai/v2/", include("api.urls_ai")),
         ]
     )
 

@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 import uuid
@@ -14,6 +15,7 @@ from rest_framework.views import APIView
 
 
 _BEDROCK_CLIENT = None
+logger = logging.getLogger("airbee.ai")
 
 
 def _is_marketplace_billing_error(exc):
@@ -89,22 +91,21 @@ def _invoke(prompt, max_tokens=2048):
     except Exception as exc:
         if _is_marketplace_billing_error(exc):
             try:
-                print(
-                    "Primary Bedrock model blocked; retrying with fallback model "
-                    f"{fallback_model_id}. Error: {exc}"
+                logger.warning(
+                    "bedrock_primary_model_blocked_using_fallback",
+                    exc_info=True,
                 )
                 return _invoke_nova(client, fallback_model_id, prompt, max_tokens)
             except Exception as fallback_exc:
-                print(
-                    "Fallback Bedrock model also failed. "
-                    f"Primary={exc} | Fallback={fallback_exc}"
+                logger.exception(
+                    "bedrock_fallback_model_failed",
                 )
                 return (
                     "AI is temporarily unavailable because the primary Anthropic model "
                     "is blocked for this AWS account and the fallback model could not be used."
                 )
 
-        print(f"Bedrock invocation failed: {exc}")
+        logger.exception("bedrock_invocation_failed")
         return "AI is temporarily unavailable. Please try again shortly."
 
 
@@ -729,15 +730,15 @@ class CopilotView(APIView):
                         )
                     else:
                         # Fall back to a simple no-tool prompt so the user at least gets text.
-                        print(f"Bedrock tool loop failed; falling back to plain prompt: {exc}")
+                        logger.exception("bedrock_tool_loop_failed_using_plain_prompt")
                         last_user = next(
                             (m["content"] for m in reversed(chat) if m["role"] == "user"), ""
                         )
                         text = _invoke(
                             f"{system}\n\nUser question: {last_user}", max_tokens=900
                         )
-        except Exception as exc:
-            print(f"Copilot error: {exc}")
+        except Exception:
+            logger.exception("copilot_request_failed")
             text = "AI Copilot encountered an error. Please try again."
 
         return Response(

@@ -11,7 +11,8 @@ logger = logging.getLogger("airbee.versioning")
 CURRENT_VERSION = "v1"
 
 # List of supported versions (oldest first)
-SUPPORTED_VERSIONS = ["v1", "v2"]
+# v2 will be supported when genuine contracts are defined (separate serializers/routes)
+SUPPORTED_VERSIONS = ["v1"]
 
 # Deprecation mapping: {deprecated_version: (removal_date, recommended_version)}
 DEPRECATION_SCHEDULE = {

@@ -4,6 +4,7 @@ from django.db import connection
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from api.exceptions import safe_error_response
 
 
 ALLOWED_PRIORITY = {"low", "normal", "high", "urgent"}
@@ -52,7 +53,7 @@ class MaintenanceList(APIView):
                 rows = [_serialize(r, cols) for r in cur.fetchall()]
             return Response(rows)
         except Exception:
-            return Response([])
+            raise
 
     def post(self, request):
         tenant_id = request.user.tenant_id
@@ -88,7 +89,11 @@ class MaintenanceList(APIView):
                 cols = [c[0] for c in cur.description]
                 row = _serialize(cur.fetchone(), cols)
         except Exception as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return safe_error_response(
+                "Could not create maintenance request",
+                code="MAINTENANCE_CREATE_FAILED",
+                exc=exc,
+            )
         return Response(row, status=status.HTTP_201_CREATED)
 
 
@@ -131,7 +136,11 @@ class MaintenanceDetail(APIView):
                 if not cur.fetchone():
                     return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return safe_error_response(
+                "Could not update maintenance request",
+                code="MAINTENANCE_UPDATE_FAILED",
+                exc=exc,
+            )
         return Response({"success": True})
 
     def delete(self, request, req_id):

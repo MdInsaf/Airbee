@@ -6,6 +6,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
+from api.exceptions import safe_error_response
 
 
 def _serialize(row, columns):
@@ -51,7 +52,7 @@ class WaitlistList(APIView):
                 rows = [_serialize(r, cols) for r in cur.fetchall()]
             return Response(rows)
         except Exception:
-            return Response([])
+            raise
 
 
 class WaitlistDetail(APIView):
@@ -70,7 +71,11 @@ class WaitlistDetail(APIView):
                     [new_status, waitlist_id, tenant_id],
                 )
         except Exception as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return safe_error_response(
+                "Could not update waitlist entry",
+                code="WAITLIST_UPDATE_FAILED",
+                exc=exc,
+            )
         return Response({"success": True})
 
     def delete(self, request, waitlist_id):
@@ -86,6 +91,7 @@ class WaitlistDetail(APIView):
 class PublicWaitlistCreate(APIView):
     """POST /public/waitlist  — guest submits from public booking page"""
     permission_classes = [AllowAny]
+    throttle_scope = "public_write"
 
     def post(self, request):
         d = request.data
@@ -98,10 +104,31 @@ class PublicWaitlistCreate(APIView):
 
         if not all([tenant_id, room_id, guest_name, guest_email, check_in, check_out]):
             return Response({"error": "All fields required"}, status=status.HTTP_400_BAD_REQUEST)
+        if check_out <= check_in:
+            return Response({"error": "Check-out must be after check-in"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            tenant_id = str(uuid.UUID(str(tenant_id)))
+            room_id = str(uuid.UUID(str(room_id)))
+            guests = max(1, min(50, int(d.get("guests") or 1)))
+        except (TypeError, ValueError):
+            return Response({"error": "Invalid waitlist request"}, status=status.HTTP_400_BAD_REQUEST)
 
         waitlist_id = str(uuid.uuid4())
         try:
             with connection.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM rooms r
+                    JOIN tenants t ON t.id = r.tenant_id
+                    WHERE r.id = %s
+                      AND r.tenant_id = %s
+                      AND t.booking_site_enabled = true
+                    """,
+                    [room_id, tenant_id],
+                )
+                if not cur.fetchone():
+                    return Response({"error": "Room not found"}, status=status.HTTP_404_NOT_FOUND)
                 cur.execute(
                     """
                     INSERT INTO waitlist (id, tenant_id, room_id, guest_name, guest_email,
@@ -114,13 +141,13 @@ class PublicWaitlistCreate(APIView):
                         guest_name, guest_email,
                         (d.get("guest_phone") or "").strip() or None,
                         check_in, check_out,
-                        max(1, int(d.get("guests") or 1)),
+                        guests,
                         (d.get("notes") or "").strip() or None,
                     ],
                 )
                 cols = [c[0] for c in cur.description]
                 row = _serialize(cur.fetchone(), cols)
-        except Exception as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return Response({"error": "Could not add this waitlist request"}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({"message": "Added to waitlist", "id": row["id"]}, status=status.HTTP_201_CREATED)

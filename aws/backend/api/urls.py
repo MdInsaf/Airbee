@@ -111,6 +111,7 @@ urlpatterns = [
     path("channels", channels.ChannelList.as_view()),
     path("channels/<str:channel_id>", channels.ChannelDetail.as_view()),
     path("channels/<str:channel_id>/sync", channels.ChannelSync.as_view()),
+    path("channels/ical-feeds/<str:room_id>/rotate", channels.ChannelICalRotate.as_view()),
 
     # Demo seed
     path("demo/seed", demo_seed.DemoSeedView.as_view()),
