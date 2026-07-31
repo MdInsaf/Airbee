@@ -21,10 +21,20 @@ For production you can keep the original single backend, or split it into a prot
 5. Security Group: allow port 5432 from 0.0.0.0/0 (restrict after demo)
 6. Save: endpoint, port, username, password
 
-**Run schema:**
+**Run the authoritative migration sequence:**
 ```bash
-psql -h <RDS_ENDPOINT> -U airbee -d airbee -f aws/database/schema.sql
+export DB_HOST=<RDS_ENDPOINT>
+export DB_PORT=5432
+export DB_NAME=airbee
+export DB_USER=airbee
+export DB_PASSWORD=<password>
+export DB_SSLMODE=require
+python aws/database/migrate.py
 ```
+
+The runner records a checksum for each migration in
+`airbee_schema_migrations`, is safe to rerun, and can adopt databases created
+from the former fragmented schema files.
 
 ---
 
@@ -83,17 +93,39 @@ DB_PORT=5432
 DB_NAME=airbee
 DB_USER=airbee
 DB_PASSWORD=<password>
+DB_CONN_MAX_AGE=0
 COGNITO_USER_POOL_ID=<your-user-pool-id>
+COGNITO_CLIENT_ID=<your-app-client-id>
 AWS_REGION=us-east-1
 BEDROCK_REGION=us-east-1
-DJANGO_SECRET_KEY=<any-random-string>
+DJANGO_SECRET_KEY=<cryptographically-random-secret>
 PUBLIC_BASE_DOMAIN=book.airbee.com
 PUBLIC_CNAME_TARGET=<shared-booking-hostname>
 PLATFORM_HOSTS=<comma-separated admin or marketing hosts>
 AMPLIFY_APP_ID=<your-amplify-app-id>
 AMPLIFY_BRANCH=main
 AMPLIFY_REGION=ap-south-1
+API_THROTTLE_RATE=50
+API_THROTTLE_BURST=100
+LOG_LEVEL=INFO
 ```
+
+Keep `DB_PASSWORD` and `DJANGO_SECRET_KEY` in your deployment secret store. Do
+not commit a populated `zappa_settings.json`; copy
+`aws/backend/zappa_settings.example.json` locally if you use Zappa directly.
+
+### Runtime health and logs
+
+- `GET /health/live` confirms the Lambda application loaded.
+- `GET /health/ready` checks PostgreSQL and returns HTTP 503 when unavailable.
+- Every response includes `X-Request-ID`; callers may supply a valid
+  `X-Request-ID` to correlate work across services.
+- Application logs are newline-delimited JSON on stdout, which Lambda sends to
+  CloudWatch automatically. Search by `request_id`, `tenant_id`, `path`,
+  `status_code`, or `duration_ms`.
+- Keep `DB_CONN_MAX_AGE=0` on Lambda and use RDS Proxy or the provider's
+  transaction pooler. Persistent Django connections can exhaust PostgreSQL as
+  Lambda concurrency grows.
 
 ### 5b — airbee-cognito-trigger (Python)
 

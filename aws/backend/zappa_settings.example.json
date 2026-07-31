@@ -1,0 +1,52 @@
+{
+  "platform": {
+    "aws_region": "ap-south-1",
+    "django_settings": "airbee.settings",
+    "app_function": "airbee.wsgi.application",
+    "lambda_name": "airbee-platform-api",
+    "project_name": "airbee",
+    "runtime": "python3.12",
+    "s3_bucket": "replace-with-deployment-bucket",
+    "memory_size": 512,
+    "timeout_seconds": 30,
+    "environment_variables": {
+      "DB_HOST": "replace-with-database-host",
+      "DB_PORT": "5432",
+      "DB_NAME": "airbee",
+      "DB_USER": "airbee",
+      "DB_PASSWORD": "replace-locally-never-commit",
+      "DB_CONN_MAX_AGE": "0",
+      "AIRBEE_API_SURFACE": "platform",
+      "DJANGO_SECRET_KEY": "replace-locally-never-commit",
+      "COGNITO_USER_POOL_ID": "replace-with-user-pool-id",
+      "COGNITO_CLIENT_ID": "replace-with-app-client-id",
+      "LOG_LEVEL": "INFO",
+      "PLATFORM_HOSTS": "app.example.com"
+    }
+  },
+  "booking": {
+    "aws_region": "ap-south-1",
+    "django_settings": "airbee.settings",
+    "app_function": "airbee.wsgi.application",
+    "lambda_name": "airbee-booking-api",
+    "project_name": "airbee",
+    "runtime": "python3.12",
+    "s3_bucket": "replace-with-deployment-bucket",
+    "memory_size": 512,
+    "timeout_seconds": 30,
+    "environment_variables": {
+      "DB_HOST": "replace-with-database-host",
+      "DB_PORT": "5432",
+      "DB_NAME": "airbee",
+      "DB_USER": "airbee",
+      "DB_PASSWORD": "replace-locally-never-commit",
+      "DB_CONN_MAX_AGE": "0",
+      "AIRBEE_API_SURFACE": "public",
+      "DJANGO_SECRET_KEY": "replace-locally-never-commit",
+      "COGNITO_USER_POOL_ID": "replace-with-user-pool-id",
+      "COGNITO_CLIENT_ID": "replace-with-app-client-id",
+      "LOG_LEVEL": "INFO",
+      "PUBLIC_BASE_DOMAIN": "book.example.com"
+    }
+  }
+}

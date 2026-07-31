@@ -4,12 +4,14 @@ from datetime import datetime, date
 from decimal import Decimal
 import uuid
 
-from django.db import connection
+from django.db import connection, transaction
 from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.http import HttpResponse
+from api.permissions import IsOwner
+from api.tenant_isolation import set_tenant_context
 
 
 def _safe_float(v, d=0.0):
@@ -49,7 +51,10 @@ def _parse_date(raw):
 class ReportsSummary(APIView):
     """GET /api/reports/summary?month=YYYY-MM"""
 
+    permission_classes = [IsOwner]
+
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         month_start = _parse_month(request.GET.get("month"))
         # End of month
@@ -198,10 +203,162 @@ class ReportsSummary(APIView):
         })
 
 
+class NightAuditReport(APIView):
+    """GET /api/reports/night-audit?date=YYYY-MM-DD
+
+    End-of-day snapshot used to close out the business day:
+    arrivals, departures, in-house guests, room status mix,
+    revenue posted, payments collected, and outstanding balances.
+    """
+
+    permission_classes = [IsOwner]
+
+    def get(self, request):
+        set_tenant_context(request)
+        tenant_id = request.user.tenant_id
+        audit_date = _parse_date(request.GET.get("date")) or timezone.now().date()
+
+        with connection.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM rooms WHERE tenant_id = %s", [tenant_id])
+            total_rooms = int((cur.fetchone() or [0])[0] or 0)
+
+            cur.execute(
+                """
+                SELECT status, COUNT(*)
+                FROM rooms
+                WHERE tenant_id = %s
+                GROUP BY status
+                """,
+                [tenant_id],
+            )
+            room_status_mix = {r[0]: int(r[1]) for r in cur.fetchall()}
+
+            cur.execute(
+                """
+                SELECT housekeeping_status, COUNT(*)
+                FROM rooms
+                WHERE tenant_id = %s
+                GROUP BY housekeeping_status
+                """,
+                [tenant_id],
+            )
+            housekeeping_mix = {r[0]: int(r[1]) for r in cur.fetchall()}
+
+            booking_select = """
+                SELECT b.id, b.guest_name, b.guest_email, b.guest_phone,
+                       b.check_in, b.check_out, b.guests,
+                       b.total_amount, b.amount_paid,
+                       b.status, b.payment_status,
+                       r.name AS room_name
+                FROM bookings b
+                LEFT JOIN rooms r ON r.id = b.room_id
+                WHERE b.tenant_id = %s
+            """
+
+            cur.execute(
+                booking_select + " AND b.check_in = %s AND b.status != 'cancelled' ORDER BY r.name",
+                [tenant_id, audit_date],
+            )
+            cols = [c[0] for c in cur.description]
+            arrivals = [_serialize(r, cols) for r in cur.fetchall()]
+
+            cur.execute(
+                booking_select + " AND b.check_out = %s AND b.status != 'cancelled' ORDER BY r.name",
+                [tenant_id, audit_date],
+            )
+            cols = [c[0] for c in cur.description]
+            departures = [_serialize(r, cols) for r in cur.fetchall()]
+
+            cur.execute(
+                booking_select
+                + " AND b.check_in <= %s AND b.check_out > %s AND b.status = 'confirmed' ORDER BY r.name",
+                [tenant_id, audit_date, audit_date],
+            )
+            cols = [c[0] for c in cur.description]
+            in_house = [_serialize(r, cols) for r in cur.fetchall()]
+
+            cur.execute(
+                """
+                SELECT
+                    COALESCE(SUM(total_amount), 0) AS revenue_posted,
+                    COALESCE(SUM(base_amount), 0) AS base_posted,
+                    COALESCE(SUM(tax_amount), 0) AS tax_posted,
+                    COALESCE(SUM(service_charge), 0) AS service_posted,
+                    COUNT(*) AS posting_count
+                FROM bookings
+                WHERE tenant_id = %s
+                  AND status != 'cancelled'
+                  AND check_in = %s
+                """,
+                [tenant_id, audit_date],
+            )
+            row = cur.fetchone() or (0, 0, 0, 0, 0)
+            revenue_posted = _safe_float(row[0])
+            base_posted = _safe_float(row[1])
+            tax_posted = _safe_float(row[2])
+            service_posted = _safe_float(row[3])
+            posting_count = int(row[4] or 0)
+
+            payments_collected = 0.0
+            payment_count = 0
+            try:
+                with transaction.atomic():
+                    cur.execute(
+                        """
+                        SELECT COALESCE(SUM(amount), 0), COUNT(*)
+                        FROM booking_payments
+                        WHERE tenant_id = %s
+                          AND DATE(received_at) = %s
+                        """,
+                        [tenant_id, audit_date],
+                    )
+                    pay_row = cur.fetchone() or (0, 0)
+                    payments_collected = _safe_float(pay_row[0])
+                    payment_count = int(pay_row[1] or 0)
+            except Exception:
+                pass
+
+            outstanding = sum(
+                max(0.0, _safe_float(b.get("total_amount")) - _safe_float(b.get("amount_paid")))
+                for b in in_house
+                if b.get("payment_status") != "paid"
+            )
+
+        in_house_count = len(in_house)
+        occupancy_rate = round((in_house_count / total_rooms) * 100, 1) if total_rooms else 0.0
+
+        return Response({
+            "date": audit_date.isoformat(),
+            "totals": {
+                "total_rooms": total_rooms,
+                "in_house": in_house_count,
+                "arrivals": len(arrivals),
+                "departures": len(departures),
+                "occupancy_rate": occupancy_rate,
+                "revenue_posted": round(revenue_posted, 2),
+                "base_posted": round(base_posted, 2),
+                "tax_posted": round(tax_posted, 2),
+                "service_posted": round(service_posted, 2),
+                "posting_count": posting_count,
+                "payments_collected": round(payments_collected, 2),
+                "payment_count": payment_count,
+                "outstanding": round(outstanding, 2),
+            },
+            "room_status_mix": room_status_mix,
+            "housekeeping_mix": housekeeping_mix,
+            "arrivals": arrivals,
+            "departures": departures,
+            "in_house": in_house,
+        })
+
+
 class GSTReport(APIView):
     """GET /api/reports/gst?month=YYYY-MM"""
 
+    permission_classes = [IsOwner]
+
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         month_start = _parse_month(request.GET.get("month"))
         if month_start.month == 12:
@@ -263,7 +420,10 @@ class GSTReport(APIView):
 class ExportBookings(APIView):
     """GET /api/reports/export/bookings?from=YYYY-MM-DD&to=YYYY-MM-DD"""
 
+    permission_classes = [IsOwner]
+
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         from_date = _parse_date(request.GET.get("from"))
         to_date = _parse_date(request.GET.get("to"))
@@ -316,7 +476,10 @@ class ExportBookings(APIView):
 class ExportGuests(APIView):
     """GET /api/reports/export/guests"""
 
+    permission_classes = [IsOwner]
+
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
 
         with connection.cursor() as cur:
@@ -359,7 +522,10 @@ class ExportGuests(APIView):
 class ExportExpenses(APIView):
     """GET /api/reports/export/expenses?from=YYYY-MM-DD&to=YYYY-MM-DD"""
 
+    permission_classes = [IsOwner]
+
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         from_date = _parse_date(request.GET.get("from"))
         to_date = _parse_date(request.GET.get("to"))
@@ -403,10 +569,279 @@ class ExportExpenses(APIView):
         return response
 
 
+def _csv_response(filename, sections):
+    """Render a list of (section_title, header_row, data_rows) into a CSV.
+    A blank row separates sections, with the section title on its own line.
+    """
+    output = io.StringIO()
+    writer = csv.writer(output)
+    for i, (title, header, rows) in enumerate(sections):
+        if i > 0:
+            writer.writerow([])
+        if title:
+            writer.writerow([title])
+        if header:
+            writer.writerow(header)
+        for r in rows:
+            writer.writerow([
+                v.isoformat() if hasattr(v, "isoformat") else
+                str(v) if isinstance(v, uuid.UUID) else
+                float(v) if isinstance(v, Decimal) else v
+                for v in r
+            ])
+    response = HttpResponse(output.getvalue(), content_type="text/csv")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+class ExportSummary(APIView):
+    """GET /api/reports/export/summary?month=YYYY-MM
+
+    CSV with KPI totals, daily revenue breakdown, revenue by source,
+    and booking status mix for the month.
+    """
+
+    permission_classes = [IsOwner]
+
+    def get(self, request):
+        set_tenant_context(request)
+        tenant_id = request.user.tenant_id
+        month_start = _parse_month(request.GET.get("month"))
+        if month_start.month == 12:
+            month_end = month_start.replace(year=month_start.year + 1, month=1)
+        else:
+            month_end = month_start.replace(month=month_start.month + 1)
+
+        with connection.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM rooms WHERE tenant_id = %s", [tenant_id])
+            total_rooms = int((cur.fetchone() or [0])[0] or 0)
+
+            cur.execute(
+                """
+                SELECT
+                    COUNT(*) FILTER (WHERE status != 'cancelled'),
+                    COALESCE(SUM(total_amount) FILTER (WHERE status != 'cancelled'), 0),
+                    COALESCE(SUM(base_amount) FILTER (WHERE status != 'cancelled'), 0),
+                    COALESCE(SUM(tax_amount) FILTER (WHERE status != 'cancelled'), 0),
+                    COALESCE(SUM(service_charge) FILTER (WHERE status != 'cancelled'), 0),
+                    COALESCE(SUM(amount_paid) FILTER (WHERE status != 'cancelled'), 0),
+                    COALESCE(SUM(GREATEST(total_amount - COALESCE(amount_paid, 0), 0))
+                             FILTER (WHERE status != 'cancelled' AND payment_status != 'paid'), 0),
+                    COALESCE(SUM((check_out - check_in)) FILTER (WHERE status != 'cancelled'), 0),
+                    COUNT(*) FILTER (WHERE status = 'cancelled')
+                FROM bookings
+                WHERE tenant_id = %s AND check_in >= %s AND check_in < %s
+                """,
+                [tenant_id, month_start, month_end],
+            )
+            row = cur.fetchone() or (0,) * 9
+            total_bookings = int(row[0] or 0)
+            total_revenue = _safe_float(row[1])
+            base_revenue = _safe_float(row[2])
+            total_gst = _safe_float(row[3])
+            total_service = _safe_float(row[4])
+            amount_collected = _safe_float(row[5])
+            outstanding = _safe_float(row[6])
+            total_room_nights = int(row[7] or 0)
+            cancellations = int(row[8] or 0)
+
+            days_in_month = (month_end - month_start).days
+            available_nights = total_rooms * days_in_month
+            occupancy_rate = round((total_room_nights / available_nights) * 100, 2) if available_nights else 0
+            adr = round(total_revenue / total_room_nights, 2) if total_room_nights else 0
+            rev_par = round(total_revenue / available_nights, 2) if available_nights else 0
+
+            cur.execute(
+                """
+                SELECT check_in, COALESCE(SUM(total_amount), 0), COUNT(*)
+                FROM bookings
+                WHERE tenant_id = %s AND status != 'cancelled'
+                  AND check_in >= %s AND check_in < %s
+                GROUP BY check_in ORDER BY check_in
+                """,
+                [tenant_id, month_start, month_end],
+            )
+            daily_rows = [(r[0], _safe_float(r[1]), int(r[2])) for r in cur.fetchall()]
+
+            cur.execute(
+                """
+                SELECT COALESCE(booking_source, 'direct'),
+                       COUNT(*), COALESCE(SUM(total_amount), 0)
+                FROM bookings
+                WHERE tenant_id = %s AND status != 'cancelled'
+                  AND check_in >= %s AND check_in < %s
+                GROUP BY 1 ORDER BY 3 DESC
+                """,
+                [tenant_id, month_start, month_end],
+            )
+            source_rows = [(r[0], int(r[1]), _safe_float(r[2])) for r in cur.fetchall()]
+
+            cur.execute(
+                """
+                SELECT status, COUNT(*), COALESCE(SUM(total_amount), 0)
+                FROM bookings
+                WHERE tenant_id = %s AND check_in >= %s AND check_in < %s
+                GROUP BY status
+                """,
+                [tenant_id, month_start, month_end],
+            )
+            status_rows = [(r[0], int(r[1]), _safe_float(r[2])) for r in cur.fetchall()]
+
+        kpi_rows = [
+            ("Total bookings", total_bookings),
+            ("Cancellations", cancellations),
+            ("Room nights sold", total_room_nights),
+            ("Available room nights", available_nights),
+            ("Occupancy rate (%)", occupancy_rate),
+            ("ADR", adr),
+            ("RevPAR", rev_par),
+            ("Total revenue", round(total_revenue, 2)),
+            ("Base revenue", round(base_revenue, 2)),
+            ("GST collected", round(total_gst, 2)),
+            ("Service charge", round(total_service, 2)),
+            ("Amount collected", round(amount_collected, 2)),
+            ("Outstanding", round(outstanding, 2)),
+        ]
+
+        sections = [
+            (f"Summary report — {month_start.strftime('%Y-%m')}", ["Metric", "Value"], kpi_rows),
+            ("Daily revenue", ["Date", "Revenue", "Bookings"], daily_rows),
+            ("Revenue by source", ["Source", "Bookings", "Revenue"], source_rows),
+            ("Booking status mix", ["Status", "Count", "Amount"], status_rows),
+        ]
+        return _csv_response(f"summary_{month_start.strftime('%Y-%m')}.csv", sections)
+
+
+class ExportNightAudit(APIView):
+    """GET /api/reports/export/night-audit?date=YYYY-MM-DD
+
+    CSV with the daily close-of-day snapshot: totals, room/HK status mix,
+    plus arrivals, departures, and in-house guest lists.
+    """
+
+    permission_classes = [IsOwner]
+
+    def get(self, request):
+        set_tenant_context(request)
+        tenant_id = request.user.tenant_id
+        audit_date = _parse_date(request.GET.get("date")) or timezone.now().date()
+
+        with connection.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM rooms WHERE tenant_id = %s", [tenant_id])
+            total_rooms = int((cur.fetchone() or [0])[0] or 0)
+
+            cur.execute(
+                "SELECT status, COUNT(*) FROM rooms WHERE tenant_id = %s GROUP BY status",
+                [tenant_id],
+            )
+            room_status_rows = [(r[0], int(r[1])) for r in cur.fetchall()]
+
+            cur.execute(
+                "SELECT housekeeping_status, COUNT(*) FROM rooms WHERE tenant_id = %s GROUP BY housekeeping_status",
+                [tenant_id],
+            )
+            hk_rows = [(r[0], int(r[1])) for r in cur.fetchall()]
+
+            booking_select = """
+                SELECT b.guest_name, b.guest_email, b.guest_phone,
+                       r.name, b.check_in, b.check_out, b.guests,
+                       b.total_amount, b.amount_paid, b.status, b.payment_status
+                FROM bookings b
+                LEFT JOIN rooms r ON r.id = b.room_id
+                WHERE b.tenant_id = %s
+            """
+            cur.execute(booking_select + " AND b.check_in = %s AND b.status != 'cancelled' ORDER BY r.name",
+                        [tenant_id, audit_date])
+            arrivals = list(cur.fetchall())
+            cur.execute(booking_select + " AND b.check_out = %s AND b.status != 'cancelled' ORDER BY r.name",
+                        [tenant_id, audit_date])
+            departures = list(cur.fetchall())
+            cur.execute(booking_select + " AND b.check_in <= %s AND b.check_out > %s AND b.status = 'confirmed' ORDER BY r.name",
+                        [tenant_id, audit_date, audit_date])
+            in_house = list(cur.fetchall())
+
+            cur.execute(
+                """
+                SELECT
+                    COALESCE(SUM(total_amount), 0),
+                    COALESCE(SUM(base_amount), 0),
+                    COALESCE(SUM(tax_amount), 0),
+                    COALESCE(SUM(service_charge), 0),
+                    COUNT(*)
+                FROM bookings
+                WHERE tenant_id = %s AND status != 'cancelled' AND check_in = %s
+                """,
+                [tenant_id, audit_date],
+            )
+            row = cur.fetchone() or (0, 0, 0, 0, 0)
+            revenue_posted = _safe_float(row[0])
+            base_posted = _safe_float(row[1])
+            tax_posted = _safe_float(row[2])
+            service_posted = _safe_float(row[3])
+            posting_count = int(row[4] or 0)
+
+            payments_collected = 0.0
+            payment_count = 0
+            try:
+                with transaction.atomic():
+                    cur.execute(
+                        """
+                        SELECT COALESCE(SUM(amount), 0), COUNT(*)
+                        FROM booking_payments
+                        WHERE tenant_id = %s AND DATE(received_at) = %s
+                        """,
+                        [tenant_id, audit_date],
+                    )
+                    pay = cur.fetchone() or (0, 0)
+                    payments_collected = _safe_float(pay[0])
+                    payment_count = int(pay[1] or 0)
+            except Exception:
+                pass
+
+        outstanding = sum(
+            max(0.0, _safe_float(b[7]) - _safe_float(b[8]))
+            for b in in_house
+            if b[10] != "paid"
+        )
+        in_house_count = len(in_house)
+        occupancy_rate = round((in_house_count / total_rooms) * 100, 2) if total_rooms else 0
+
+        totals_rows = [
+            ("Total rooms", total_rooms),
+            ("In-house", in_house_count),
+            ("Arrivals", len(arrivals)),
+            ("Departures", len(departures)),
+            ("Occupancy rate (%)", occupancy_rate),
+            ("Postings count", posting_count),
+            ("Revenue posted", round(revenue_posted, 2)),
+            ("Base posted", round(base_posted, 2)),
+            ("GST posted", round(tax_posted, 2)),
+            ("Service posted", round(service_posted, 2)),
+            ("Payments collected", round(payments_collected, 2)),
+            ("Payment count", payment_count),
+            ("Outstanding (in-house)", round(outstanding, 2)),
+        ]
+        booking_header = ["Guest", "Email", "Phone", "Room", "Check-in", "Check-out",
+                          "Guests", "Total", "Paid", "Status", "Payment status"]
+
+        sections = [
+            (f"Night audit — {audit_date.isoformat()}", ["Metric", "Value"], totals_rows),
+            ("Room status mix", ["Status", "Count"], room_status_rows),
+            ("Housekeeping mix", ["Status", "Count"], hk_rows),
+            ("Arrivals", booking_header, arrivals),
+            ("Departures", booking_header, departures),
+            ("In-house", booking_header, in_house),
+        ]
+        return _csv_response(f"night_audit_{audit_date.isoformat()}.csv", sections)
+
+
 class ExportGSTCsv(APIView):
     """GET /api/reports/export/gst?month=YYYY-MM"""
 
+    permission_classes = [IsOwner]
+
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         month_start = _parse_month(request.GET.get("month"))
         if month_start.month == 12:

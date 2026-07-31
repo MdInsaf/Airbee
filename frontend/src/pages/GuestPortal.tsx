@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,7 @@ import { Separator } from "@/components/ui/separator";
 import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
-import { Search, MapPin, Phone, Mail, XCircle } from "lucide-react";
+import { KeyRound, MapPin, Phone, Mail, XCircle } from "lucide-react";
 
 interface Booking {
   id: string; guest_name: string; guest_email: string;
@@ -43,7 +43,9 @@ const fmt = (iso: string) => {
 
 const GuestPortal = () => {
   const { toast } = useToast();
-  const [email, setEmail] = useState("");
+  const [token, setToken] = useState(
+    () => new URLSearchParams(window.location.search).get("token") || ""
+  );
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -54,7 +56,7 @@ const GuestPortal = () => {
     if (!window.confirm("Are you sure you want to cancel this booking? This cannot be undone.")) return;
     setCancelling(bookingId);
     try {
-      await api.publicPost(`/public/bookings/${bookingId}/cancel`, { email: email.trim().toLowerCase() });
+      await api.publicPost(`/public/bookings/${bookingId}/cancel`, { token });
       setBookings(prev => prev.map(b => b.id === bookingId ? { ...b, status: "cancelled" } : b));
       toast({ title: "Booking cancelled" });
     } catch (err: any) {
@@ -64,20 +66,30 @@ const GuestPortal = () => {
     }
   };
 
-  const handleSearch = async () => {
-    if (!email.trim()) return;
+  const handleLookup = async (accessToken = token) => {
+    if (!accessToken.trim()) return;
     setLoading(true);
     setError("");
     try {
-      const res = await api.publicGet<{ bookings: Booking[] }>(`/public/booking-lookup?email=${encodeURIComponent(email.trim())}`);
+      const res = await api.publicGet<{ bookings: Booking[] }>(
+        `/public/booking-lookup?token=${encodeURIComponent(accessToken.trim())}`
+      );
       setBookings(res.bookings || []);
       setSearched(true);
     } catch (err: any) {
-      setError("No bookings found for this email address.");
+      setError("This booking access link is invalid or has expired.");
       setBookings([]);
       setSearched(true);
     } finally { setLoading(false); }
   };
+
+  useEffect(() => {
+    if (token) {
+      void handleLookup(token);
+    }
+    // The token is intentionally read once from the signed email link.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex flex-col">
@@ -85,7 +97,7 @@ const GuestPortal = () => {
         {/* Header */}
         <div className="text-center">
           <h1 className="text-3xl font-bold tracking-tight">My Bookings</h1>
-          <p className="text-muted-foreground mt-2">Look up your reservation by email address</p>
+          <p className="text-muted-foreground mt-2">Open the secure link from your booking email</p>
         </div>
 
         {/* Search Card */}
@@ -93,18 +105,19 @@ const GuestPortal = () => {
           <CardContent className="p-6">
             <div className="flex gap-3">
               <div className="flex-1 space-y-2">
-                <Label>Email Address</Label>
+                <Label>Booking Access Token</Label>
                 <Input
-                  type="email"
-                  placeholder="Enter the email you used when booking"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && handleSearch()}
+                  type="password"
+                  autoComplete="off"
+                  placeholder="Paste the token from your secure booking link"
+                  value={token}
+                  onChange={e => setToken(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleLookup()}
                 />
               </div>
               <div className="flex items-end">
-                <Button onClick={handleSearch} disabled={loading || !email.trim()}>
-                  <Search className="w-4 h-4 mr-2" />{loading ? "Searching..." : "Find Booking"}
+                <Button onClick={() => handleLookup()} disabled={loading || !token.trim()}>
+                  <KeyRound className="w-4 h-4 mr-2" />{loading ? "Opening..." : "Open Booking"}
                 </Button>
               </div>
             </div>

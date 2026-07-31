@@ -17,6 +17,8 @@ import boto3
 from botocore.exceptions import ClientError
 from django.db import connection
 
+from api.guest_access import build_guest_portal_url, issue_guest_access_token
+
 logger = logging.getLogger(__name__)
 
 SES_REGION = os.environ.get("SES_REGION", "ap-south-1")
@@ -114,9 +116,14 @@ def _build_email_html(*, subject_line: str, property_name: str, body_html: str, 
 </html>"""
 
 
-def _pending_email_body(booking: dict, room: dict, pricing: dict, property_data: dict) -> str:
+def _pending_email_body(
+    booking: dict,
+    room: dict,
+    pricing: dict,
+    property_data: dict,
+    guest_portal_url: str,
+) -> str:
     currency = property_data.get("currency", "INR")
-    guest_portal_url = f"https://{property_data.get('primary_hostname', 'booking.ascendersservices.in')}/my-booking"
     nights = pricing.get("nights", 0)
 
     rows = [
@@ -179,9 +186,13 @@ def _pending_email_body(booking: dict, room: dict, pricing: dict, property_data:
     """
 
 
-def _confirmed_email_body(booking: dict, room_name: str, property_data: dict) -> str:
+def _confirmed_email_body(
+    booking: dict,
+    room_name: str,
+    property_data: dict,
+    guest_portal_url: str,
+) -> str:
     currency = property_data.get("currency", "INR")
-    guest_portal_url = f"https://{property_data.get('primary_hostname', 'booking.ascendersservices.in')}/my-booking"
     address = property_data.get("address", "")
 
     rows = [
@@ -262,7 +273,7 @@ def _log_email(tenant_id: str, *, to_email: str, email_type: str, subject: str, 
                 [str(uuid.uuid4()), tenant_id, email_type, to_email, subject, status],
             )
     except Exception:
-        pass
+        logger.exception("email_log_write_failed")
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -274,6 +285,7 @@ def send_booking_request_email(
     room: dict[str, Any],
     pricing: dict[str, Any],
     property_data: dict[str, Any],
+    guest_access_token: str | None = None,
 ) -> None:
     """Fire-and-forget: send 'booking request received' email to the guest."""
     guest_email = (booking.get("guest_email") or "").strip()
@@ -282,7 +294,19 @@ def send_booking_request_email(
 
     property_name = property_data.get("name", "AIR BEE Property")
     subject = f"Booking Request Received — {property_name}"
-    body = _pending_email_body(booking, room, pricing, property_data)
+    token = guest_access_token or issue_guest_access_token(
+        str(booking.get("id")),
+        tenant_id,
+        guest_email,
+    )
+    guest_portal_url = build_guest_portal_url(property_data, token)
+    body = _pending_email_body(
+        booking,
+        room,
+        pricing,
+        property_data,
+        guest_portal_url,
+    )
     html = _build_email_html(
         subject_line=subject,
         property_name=property_name,
@@ -310,7 +334,18 @@ def send_booking_confirmed_email(
 
     property_name = property_data.get("name", "AIR BEE Property")
     subject = f"Booking Confirmed — {property_name}"
-    body = _confirmed_email_body(booking, room_name, property_data)
+    token = issue_guest_access_token(
+        str(booking.get("id")),
+        tenant_id,
+        guest_email,
+    )
+    guest_portal_url = build_guest_portal_url(property_data, token)
+    body = _confirmed_email_body(
+        booking,
+        room_name,
+        property_data,
+        guest_portal_url,
+    )
     html = _build_email_html(
         subject_line=subject,
         property_name=property_name,

@@ -16,7 +16,7 @@ urlpatterns = [
     path("site/bookings", PublicSiteBookingCreateView.as_view()),
     path("properties/<slug:property_slug>", PublicPropertyView.as_view()),
     path("properties/<slug:property_slug>/bookings", PublicBookingCreateView.as_view()),
-    path("ical/<slug:tenant_slug>/<str:room_id>.ics", ChannelICalExport.as_view()),
+    path("ical/<uuid:feed_token>.ics", ChannelICalExport.as_view()),
     path("booking-lookup", PublicBookingLookup.as_view()),
     path("bookings/<str:booking_id>/cancel", PublicBookingCancelView.as_view()),
     path("waitlist", PublicWaitlistCreate.as_view()),

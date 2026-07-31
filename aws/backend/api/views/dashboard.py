@@ -1,12 +1,15 @@
 from datetime import date, datetime
+from typing import Tuple
 
 from django.db import connection
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from api.permissions import IsOwner
+from api.tenant_isolation import set_tenant_context
 
 
-def _shift_month(year: int, month: int, delta: int) -> tuple[int, int]:
+def _shift_month(year: int, month: int, delta: int) -> Tuple[int, int]:
     month_idx = month + delta
     out_year = year + (month_idx - 1) // 12
     out_month = ((month_idx - 1) % 12) + 1
@@ -18,7 +21,10 @@ def _month_start(year: int, month: int) -> date:
 
 
 class DashboardStats(APIView):
+    permission_classes = [IsOwner]
+
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         today = timezone.now().date()
         start_year, start_month = _shift_month(today.year, today.month, -5)

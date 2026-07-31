@@ -5,6 +5,9 @@ from django.db import connection
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from api.exceptions import safe_error_response
+from api.permissions import IsStaff
+from api.tenant_isolation import set_tenant_context
 
 
 EXPENSE_CATEGORIES = {
@@ -40,7 +43,10 @@ def _parse_date(raw):
 
 
 class ExpenseList(APIView):
+    permission_classes = [IsStaff]
+
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         params = [tenant_id]
         filters = ""
@@ -88,6 +94,7 @@ class ExpenseList(APIView):
             return Response({"expenses": [], "summary": {}, "total": 0})
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         description = (d.get("description") or "").strip()
@@ -121,12 +128,19 @@ class ExpenseList(APIView):
                 cols = [c[0] for c in cur.description]
                 row = _serialize(cur.fetchone(), cols)
         except Exception as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return safe_error_response(
+                "Could not create expense",
+                code="EXPENSE_CREATE_FAILED",
+                exc=exc,
+            )
         return Response(row, status=status.HTTP_201_CREATED)
 
 
 class ExpenseDetail(APIView):
+    permission_classes = [IsStaff]
+
     def put(self, request, expense_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         try:
@@ -157,10 +171,15 @@ class ExpenseDetail(APIView):
                 if not cur.fetchone():
                     return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return safe_error_response(
+                "Could not update expense",
+                code="EXPENSE_UPDATE_FAILED",
+                exc=exc,
+            )
         return Response({"success": True})
 
     def delete(self, request, expense_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
             cur.execute(

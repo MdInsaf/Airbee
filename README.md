@@ -50,7 +50,7 @@ Each property owner gets an isolated admin workspace to manage their hotel day-t
 │   │   └── api/
 │   │       └── views/         # rooms, bookings, guests, ai, public_booking, ...
 │   ├── database/
-│   │   ├── schema.sql         # 14-table PostgreSQL schema
+│   │   ├── schema.sql         # Compatibility entrypoint for ordered migrations
 │   │   └── seed_local.sql     # Local dev seed data
 │   └── cognito-trigger/       # Post-signup Lambda (provisions tenant)
 │
@@ -76,7 +76,8 @@ docker-compose up -d
 
 **1. Database**
 ```bash
-psql -h localhost -U airbee -d airbee -f aws/database/schema.sql
+DB_HOST=localhost DB_NAME=airbee DB_USER=airbee DB_PASSWORD=<password> \
+  python aws/database/migrate.py
 psql -h localhost -U airbee -d airbee -f aws/database/seed_local.sql
 ```
 

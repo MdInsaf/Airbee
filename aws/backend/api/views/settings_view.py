@@ -10,6 +10,9 @@ import dns.resolver
 from django.db import connection
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from api.exceptions import safe_error_response
+from api.permissions import IsOwner, IsStaff
+from api.tenant_isolation import set_tenant_context
 
 from api.domain_automation import (
     classify_amplify_domain_state,
@@ -270,7 +273,10 @@ def _load_tenant(cur, tenant_id):
 
 
 class SettingsView(APIView):
+    permission_classes = [IsOwner]
+
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         user_sub = request.user.sub
         with connection.cursor() as cur:
@@ -490,6 +496,8 @@ class SettingsView(APIView):
 
 
 class DomainVerificationView(APIView):
+    permission_classes = [IsOwner]
+
     def post(self, request):
         tenant_id = request.user.tenant_id
         provider = get_domain_automation_provider()
@@ -647,6 +655,8 @@ class DomainVerificationView(APIView):
 
 
 class RoomCategoriesView(APIView):
+    permission_classes = [IsStaff]
+
     def get(self, request):
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
@@ -662,3 +672,81 @@ class RoomCategoriesView(APIView):
             cols = [c[0] for c in cur.description]
             rows = [_serialize(r, cols) for r in cur.fetchall()]
         return Response(rows)
+
+    def post(self, request):
+        """Create a category. Optionally provision N rooms in that category in the same call.
+
+        Body:
+          name (required), color, description, display_order
+          count (optional): if > 0, create N rooms in this category
+          start_number (default 1), room_name_prefix (default = category name)
+          base_price, max_guests (applied to created rooms)
+        """
+        tenant_id = request.user.tenant_id
+        d = request.data
+        name = (d.get("name") or "").strip()
+        if not name:
+            return Response({"error": "Category name is required"}, status=400)
+
+        color = (d.get("color") or "#3B82F6").strip()
+        description = (d.get("description") or "").strip() or None
+        try:
+            display_order = int(d.get("display_order") or 0)
+        except Exception:
+            display_order = 0
+
+        try:
+            count = int(d.get("count") or 0)
+        except Exception:
+            count = 0
+        count = max(0, min(500, count))
+        try:
+            start_number = int(d.get("start_number") or 1)
+        except Exception:
+            start_number = 1
+        room_name_prefix = (d.get("room_name_prefix") or name).strip()
+        try:
+            base_price = float(d.get("base_price") or 0)
+        except Exception:
+            base_price = 0.0
+        try:
+            max_guests = max(1, int(d.get("max_guests") or 2))
+        except Exception:
+            max_guests = 2
+
+        category_id = str(uuid.uuid4())
+        room_ids = []
+        try:
+            with connection.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO room_categories (id, tenant_id, name, color, display_order, description)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    [category_id, tenant_id, name, color, display_order, description],
+                )
+                for i in range(count):
+                    room_id = str(uuid.uuid4())
+                    room_name = f"{room_name_prefix} {start_number + i}".strip()
+                    cur.execute(
+                        """
+                        INSERT INTO rooms (id, tenant_id, name, category_id, max_guests, base_price, status, housekeeping_status)
+                        VALUES (%s, %s, %s, %s, %s, %s, 'available', 'clean')
+                        """,
+                        [room_id, tenant_id, room_name, category_id, max_guests, base_price],
+                    )
+                    room_ids.append(room_id)
+        except Exception as exc:
+            return safe_error_response(
+                "Could not create room category",
+                code="ROOM_CATEGORY_CREATE_FAILED",
+                exc=exc,
+            )
+
+        return Response({
+            "id": category_id,
+            "name": name,
+            "color": color,
+            "rooms_created": room_ids,
+            "rooms_count": len(room_ids),
+        }, status=201)

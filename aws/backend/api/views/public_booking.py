@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import uuid
 from datetime import datetime
@@ -10,8 +11,16 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from api.guest_access import (
+    GuestAccessError,
+    build_guest_portal_url,
+    issue_guest_access_token,
+    read_guest_access_token,
+)
+
 
 _JSON_FIELDS = {"amenities", "images", "booking_theme", "booking_site"}
+logger = logging.getLogger("airbee.public_booking")
 
 def _serialize(row, columns):
     obj = dict(zip(columns, row))
@@ -279,7 +288,7 @@ def _build_property_payload(property_data, request):
     )
 
 
-def _create_booking(property_data, request):
+def _create_booking_once(property_data, request):
     payload = request.data
     room_id = payload.get("room_id")
     guest_name = (payload.get("guest_name") or "").strip()
@@ -411,20 +420,31 @@ def _create_booking(property_data, request):
                 related_type="booking",
             )
         except Exception:
-            pass
+            logger.exception("public_booking_notification_failed")
 
-    # Send booking request email outside transaction (best-effort)
-    try:
-        from api.views.email_utils import send_booking_request_email
-        send_booking_request_email(
-            property_data["id"],
-            booking=booking,
-            room=room,
-            pricing=pricing,
-            property_data=property_data,
-        )
-    except Exception:
-        pass
+    guest_access_token = issue_guest_access_token(
+        booking_id,
+        property_data["id"],
+        guest_email,
+    )
+    guest_portal_url = build_guest_portal_url(property_data, guest_access_token)
+
+    # Email only after the booking and its idempotency response are durable.
+    def send_booking_email():
+        try:
+            from api.views.email_utils import send_booking_request_email
+            send_booking_request_email(
+                property_data["id"],
+                booking=booking,
+                room=room,
+                pricing=pricing,
+                property_data=property_data,
+                guest_access_token=guest_access_token,
+            )
+        except Exception:
+            logger.exception("public_booking_email_failed")
+
+    transaction.on_commit(send_booking_email)
 
     return Response(
         {
@@ -442,13 +462,25 @@ def _create_booking(property_data, request):
                 "check_out_time": room.get("check_out_time"),
             },
             "pricing": pricing,
+            "guest_access_token": guest_access_token,
+            "guest_portal_url": guest_portal_url,
         },
         status=status.HTTP_201_CREATED,
     )
 
 
+def _create_booking(property_data, request):
+    return execute_idempotent(
+        request,
+        property_data["id"],
+        "public-booking:create",
+        lambda: _create_booking_once(property_data, request),
+    )
+
+
 class PublicPropertyView(APIView):
     permission_classes = [AllowAny]
+    throttle_scope = "public_read"
 
     def get(self, request, property_slug):
         property_data = _resolve_property(request, property_slug)
@@ -461,6 +493,7 @@ class PublicPropertyView(APIView):
 
 class PublicSiteView(APIView):
     permission_classes = [AllowAny]
+    throttle_scope = "public_read"
 
     def get(self, request):
         property_data = _resolve_property(request)
@@ -473,6 +506,7 @@ class PublicSiteView(APIView):
 
 class PublicBookingCreateView(APIView):
     permission_classes = [AllowAny]
+    throttle_scope = "public_write"
 
     def post(self, request, property_slug):
         property_data = _resolve_property(request, property_slug)
@@ -485,6 +519,7 @@ class PublicBookingCreateView(APIView):
 
 class PublicSiteBookingCreateView(APIView):
     permission_classes = [AllowAny]
+    throttle_scope = "public_write"
 
     def post(self, request):
         property_data = _resolve_property(request)
@@ -496,23 +531,19 @@ class PublicSiteBookingCreateView(APIView):
 
 
 class PublicBookingLookup(APIView):
-    """GET /public/booking-lookup?email=&booking_id=  — guest portal self-service"""
+    """Resolve one booking from a signed, time-limited guest access token."""
     permission_classes = [AllowAny]
+    throttle_scope = "guest_access"
 
     def get(self, request):
-        email = (request.GET.get("email") or "").strip().lower()
-        booking_id = (request.GET.get("booking_id") or "").strip()
-        if not email:
-            return Response({"error": "email is required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            access = read_guest_access_token((request.GET.get("token") or "").strip())
+        except GuestAccessError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_403_FORBIDDEN)
 
         with connection.cursor() as cur:
-            params = [email]
-            extra = ""
-            if booking_id:
-                extra = " AND b.id = %s"
-                params.append(booking_id)
             cur.execute(
-                f"""
+                """
                 SELECT b.id, b.guest_name, b.guest_email, b.guest_phone,
                        b.check_in, b.check_out, b.guests, b.status, b.payment_status,
                        b.total_amount, b.base_amount, b.tax_amount, b.service_charge,
@@ -524,57 +555,67 @@ class PublicBookingLookup(APIView):
                 FROM bookings b
                 JOIN tenants t ON t.id = b.tenant_id
                 LEFT JOIN rooms r ON r.id = b.room_id
-                WHERE lower(b.guest_email) = %s{extra}
-                ORDER BY b.created_at DESC
-                LIMIT 10
+                WHERE b.id = %s
+                  AND b.tenant_id = %s
+                  AND lower(b.guest_email) = %s
+                LIMIT 1
                 """,
-                params,
+                [access["booking_id"], access["tenant_id"], access["email"]],
             )
             cols = [c[0] for c in cur.description]
             rows = [_serialize(row, cols) for row in cur.fetchall()]
 
         if not rows:
-            return Response({"error": "No bookings found for this email"}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response({"bookings": rows})
 
 
 class PublicBookingCancelView(APIView):
-    """POST /public/bookings/{booking_id}/cancel — guest self-service cancellation"""
+    """Cancel one pending booking using its signed guest access token."""
     permission_classes = [AllowAny]
+    throttle_scope = "guest_access"
 
     def post(self, request, booking_id):
-        email = (request.data.get("email") or "").strip().lower()
-        if not email:
-            return Response({"error": "email is required"}, status=status.HTTP_400_BAD_REQUEST)
-
         try:
             uuid.UUID(str(booking_id))
         except ValueError:
             return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        with connection.cursor() as cur:
+        try:
+            access = read_guest_access_token((request.data.get("token") or "").strip())
+        except GuestAccessError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        if access["booking_id"] != str(booking_id):
+            return Response(
+                {"error": "Booking access link does not match"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        with transaction.atomic(), connection.cursor() as cur:
             cur.execute(
-                "SELECT id, status, guest_email FROM bookings WHERE id = %s",
-                [str(booking_id)],
+                """
+                SELECT status
+                FROM bookings
+                WHERE id = %s AND tenant_id = %s AND lower(guest_email) = %s
+                FOR UPDATE
+                """,
+                [str(booking_id), access["tenant_id"], access["email"]],
             )
             row = cur.fetchone()
-
-        if not row:
-            return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
-
-        _id, booking_status, booking_email = row
-        if (booking_email or "").strip().lower() != email:
-            return Response({"error": "Email does not match this booking"}, status=status.HTTP_403_FORBIDDEN)
-        if booking_status != "pending":
-            return Response(
-                {"error": f"Cannot cancel a booking with status '{booking_status}'"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        with connection.cursor() as cur:
+            if not row:
+                return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
+            if row[0] != "pending":
+                return Response(
+                    {"error": f"Cannot cancel a booking with status '{row[0]}'"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             cur.execute(
-                "UPDATE bookings SET status = 'cancelled', updated_at = NOW() WHERE id = %s",
-                [str(booking_id)],
+                """
+                UPDATE bookings
+                SET status = 'cancelled', updated_at = NOW()
+                WHERE id = %s AND tenant_id = %s
+                """,
+                [str(booking_id), access["tenant_id"]],
             )
 
         return Response({"message": "Booking cancelled successfully"})

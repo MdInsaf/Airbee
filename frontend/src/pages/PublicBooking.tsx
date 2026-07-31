@@ -106,6 +106,8 @@ type BookingResponse = {
     check_out_time: string | null;
   };
   pricing: RoomPricing;
+  guest_access_token: string;
+  guest_portal_url: string;
 };
 
 function formatDate(date: Date) {
@@ -908,6 +910,11 @@ const PublicBooking = () => {
                       <p className="text-muted-foreground">
                         Status: {confirmation.booking.status}. Follow up with the property to confirm payment and final approval.
                       </p>
+                      {confirmation.guest_portal_url ? (
+                        <Button asChild className="mt-3">
+                          <a href={confirmation.guest_portal_url}>View or manage this booking</a>
+                        </Button>
+                      ) : null}
                     </CardContent>
                   </Card>
                 ) : null}

@@ -11,7 +11,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, CalendarDays } from "lucide-react";
+import { Plus, CalendarDays, Layers, ArrowRightLeft, X, Loader2 } from "lucide-react";
 
 interface Booking {
   id: string;
@@ -42,6 +42,23 @@ const Bookings = () => {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkSubmitting, setBulkSubmitting] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferBooking, setTransferBooking] = useState<Booking | null>(null);
+  const [transferRoomId, setTransferRoomId] = useState<string>("");
+  const [transferSubmitting, setTransferSubmitting] = useState(false);
+
+  type BulkRow = {
+    guest_name: string; guest_email: string; guest_phone: string;
+    room_id: string; check_in: string; check_out: string;
+    guests: number; total_amount: number;
+  };
+  const blankBulkRow = (): BulkRow => ({
+    guest_name: "", guest_email: "", guest_phone: "",
+    room_id: "", check_in: "", check_out: "", guests: 1, total_amount: 0,
+  });
+  const [bulkRows, setBulkRows] = useState<BulkRow[]>([blankBulkRow(), blankBulkRow(), blankBulkRow()]);
 
   const [form, setForm] = useState({
     guest_name: "", guest_email: "", guest_phone: "",
@@ -130,6 +147,74 @@ const Bookings = () => {
     return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] || ""}`}>{status}</span>;
   };
 
+  const updateBulkRow = (idx: number, patch: Partial<BulkRow>) => {
+    setBulkRows(prev => prev.map((r, i) => {
+      if (i !== idx) return r;
+      const next = { ...r, ...patch };
+      if ((patch.room_id || patch.check_in || patch.check_out) && next.room_id && next.check_in && next.check_out) {
+        const room = rooms.find(rm => rm.id === next.room_id);
+        if (room) {
+          const nights = Math.max(1, Math.ceil((new Date(next.check_out).getTime() - new Date(next.check_in).getTime()) / 86400000));
+          next.total_amount = Number(room.base_price) * nights;
+        }
+      }
+      return next;
+    }));
+  };
+
+  const handleBulkCreate = async () => {
+    const valid = bulkRows.filter(r => r.guest_name && r.room_id && r.check_in && r.check_out);
+    if (valid.length === 0) {
+      toast({ title: "No valid rows", description: "Fill at least one row (guest, room, dates)", variant: "destructive" });
+      return;
+    }
+    setBulkSubmitting(true);
+    try {
+      const res = await api.post<{ created: any[]; count: number }>("/api/bookings/bulk", {
+        bookings: valid.map(r => ({
+          guest_name: r.guest_name,
+          guest_email: r.guest_email || null,
+          guest_phone: r.guest_phone || null,
+          room_id: r.room_id,
+          check_in: r.check_in,
+          check_out: r.check_out,
+          guests: r.guests,
+          total_amount: r.total_amount,
+        })),
+      });
+      toast({ title: `Created ${res.count} bookings` });
+      setBulkOpen(false);
+      setBulkRows([blankBulkRow(), blankBulkRow(), blankBulkRow()]);
+      fetchData();
+    } catch (err: any) {
+      toast({ title: "Bulk create failed", description: err.message, variant: "destructive" });
+    } finally {
+      setBulkSubmitting(false);
+    }
+  };
+
+  const openTransfer = (b: Booking) => {
+    setTransferBooking(b);
+    setTransferRoomId("");
+    setTransferOpen(true);
+  };
+
+  const handleTransfer = async () => {
+    if (!transferBooking || !transferRoomId) return;
+    setTransferSubmitting(true);
+    try {
+      await api.put(`/api/bookings/${transferBooking.id}`, { room_id: transferRoomId });
+      toast({ title: "Room transferred" });
+      setTransferOpen(false);
+      setTransferBooking(null);
+      fetchData();
+    } catch (err: any) {
+      toast({ title: "Transfer failed", description: err.message, variant: "destructive" });
+    } finally {
+      setTransferSubmitting(false);
+    }
+  };
+
   // Auto-calculate price
   useEffect(() => {
     if (form.room_id && form.check_in && form.check_out) {
@@ -148,6 +233,10 @@ const Bookings = () => {
           <h1 className="text-3xl font-bold tracking-tight">Bookings</h1>
           <p className="text-muted-foreground mt-1">Manage reservations</p>
         </div>
+        <div className="flex items-center gap-2">
+        <Button variant="outline" onClick={() => setBulkOpen(true)}>
+          <Layers className="w-4 h-4 mr-2" />Bulk Booking
+        </Button>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button><Plus className="w-4 h-4 mr-2" />New Booking</Button>
@@ -204,6 +293,109 @@ const Bookings = () => {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
+
+        {/* Bulk booking dialog */}
+        <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
+          <DialogContent className="max-w-5xl">
+            <DialogHeader>
+              <DialogTitle>Bulk Booking — multi-row form</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Each row is one booking. Different guests, rooms, and dates allowed. All-or-nothing: if any row fails validation, none are created.
+              </p>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-44">Guest name</TableHead>
+                      <TableHead className="w-40">Email</TableHead>
+                      <TableHead className="w-32">Phone</TableHead>
+                      <TableHead className="w-44">Room</TableHead>
+                      <TableHead className="w-36">Check-in</TableHead>
+                      <TableHead className="w-36">Check-out</TableHead>
+                      <TableHead className="w-16">Guests</TableHead>
+                      <TableHead className="w-28">Total</TableHead>
+                      <TableHead className="w-8" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {bulkRows.map((r, i) => (
+                      <TableRow key={i}>
+                        <TableCell><Input value={r.guest_name} onChange={e => updateBulkRow(i, { guest_name: e.target.value })} className="h-8" /></TableCell>
+                        <TableCell><Input value={r.guest_email} onChange={e => updateBulkRow(i, { guest_email: e.target.value })} className="h-8" /></TableCell>
+                        <TableCell><Input value={r.guest_phone} onChange={e => updateBulkRow(i, { guest_phone: e.target.value })} className="h-8" /></TableCell>
+                        <TableCell>
+                          <Select value={r.room_id} onValueChange={v => updateBulkRow(i, { room_id: v })}>
+                            <SelectTrigger className="h-8"><SelectValue placeholder="Room" /></SelectTrigger>
+                            <SelectContent>{rooms.map(rm => <SelectItem key={rm.id} value={rm.id}>{rm.name}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell><Input type="date" value={r.check_in} onChange={e => updateBulkRow(i, { check_in: e.target.value })} className="h-8" /></TableCell>
+                        <TableCell><Input type="date" value={r.check_out} onChange={e => updateBulkRow(i, { check_out: e.target.value })} className="h-8" /></TableCell>
+                        <TableCell><Input type="number" min={1} value={r.guests} onChange={e => updateBulkRow(i, { guests: parseInt(e.target.value) || 1 })} className="h-8" /></TableCell>
+                        <TableCell><Input type="number" value={r.total_amount} onChange={e => updateBulkRow(i, { total_amount: parseFloat(e.target.value) || 0 })} className="h-8" /></TableCell>
+                        <TableCell>
+                          {bulkRows.length > 1 && (
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setBulkRows(prev => prev.filter((_, j) => j !== i))}>
+                              <X className="w-3 h-3" />
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="flex items-center justify-between">
+                <Button variant="outline" size="sm" onClick={() => setBulkRows(prev => [...prev, blankBulkRow()])}>
+                  <Plus className="w-4 h-4 mr-1" />Add row
+                </Button>
+                <Button onClick={handleBulkCreate} disabled={bulkSubmitting}>
+                  {bulkSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Create {bulkRows.filter(r => r.guest_name && r.room_id && r.check_in && r.check_out).length} bookings
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Transfer room dialog */}
+        <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Transfer Room</DialogTitle>
+            </DialogHeader>
+            {transferBooking && (
+              <div className="space-y-4">
+                <div className="text-sm space-y-1 p-3 rounded-lg bg-muted/50">
+                  <p><span className="text-muted-foreground">Guest:</span> {transferBooking.guest_name}</p>
+                  <p><span className="text-muted-foreground">Current room:</span> {(transferBooking as any).rooms?.name || "—"}</p>
+                  <p><span className="text-muted-foreground">Stay:</span> {formatDate(transferBooking.check_in)} → {formatDate(transferBooking.check_out)}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>New Room</Label>
+                  <Select value={transferRoomId} onValueChange={setTransferRoomId}>
+                    <SelectTrigger><SelectValue placeholder="Pick an available room" /></SelectTrigger>
+                    <SelectContent>
+                      {rooms.filter(r => r.id !== transferBooking.room_id).map(r => (
+                        <SelectItem key={r.id} value={r.id}>{r.name} — {formatCurrency(r.base_price)}/night</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    The system checks the new room is available for these dates before transferring.
+                  </p>
+                </div>
+                <Button onClick={handleTransfer} disabled={!transferRoomId || transferSubmitting} className="w-full">
+                  {transferSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Transfer to selected room
+                </Button>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
 
       {loading ? (
@@ -229,6 +421,7 @@ const Bookings = () => {
                   <TableHead>Amount</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Payment</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -268,6 +461,14 @@ const Bookings = () => {
                           <SelectItem value="paid">paid</SelectItem>
                         </SelectContent>
                       </Select>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {b.status !== "cancelled" && b.status !== "completed" && (
+                        <Button variant="ghost" size="sm" onClick={() => openTransfer(b)} title="Transfer to another room">
+                          <ArrowRightLeft className="w-3.5 h-3.5 mr-1" />
+                          Transfer
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

@@ -5,6 +5,9 @@ from django.db import connection
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from api.exceptions import safe_error_response
+from api.permissions import IsStaff
+from api.tenant_isolation import set_tenant_context
 
 
 def _serialize(row, columns):
@@ -36,7 +39,10 @@ def _safe_float(v, d=0.0):
 class PricingRuleList(APIView):
     """GET /api/pricing-rules  POST /api/pricing-rules"""
 
+    permission_classes = [IsStaff]
+
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         room_id = request.GET.get("room_id")
         params = [tenant_id]
@@ -63,6 +69,7 @@ class PricingRuleList(APIView):
         return Response(rows)
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         name = (d.get("name") or "").strip()
@@ -102,7 +109,11 @@ class PricingRuleList(APIView):
                 cols = [c[0] for c in cur.description]
                 row = _serialize(cur.fetchone(), cols)
         except Exception as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return safe_error_response(
+                "Could not create pricing rule",
+                code="PRICING_RULE_CREATE_FAILED",
+                exc=exc,
+            )
 
         return Response(row, status=status.HTTP_201_CREATED)
 
@@ -110,7 +121,10 @@ class PricingRuleList(APIView):
 class PricingRuleDetail(APIView):
     """PUT /api/pricing-rules/{id}  DELETE /api/pricing-rules/{id}"""
 
+    permission_classes = [IsStaff]
+
     def put(self, request, rule_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         try:
@@ -147,10 +161,15 @@ class PricingRuleDetail(APIView):
                 if not cur.fetchone():
                     return Response({"error": "Rule not found"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return safe_error_response(
+                "Could not update pricing rule",
+                code="PRICING_RULE_UPDATE_FAILED",
+                exc=exc,
+            )
         return Response({"success": True})
 
     def delete(self, request, rule_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
             cur.execute(
