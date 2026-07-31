@@ -1,10 +1,15 @@
 import uuid
+import logging
 from decimal import Decimal
 from django.db import connection
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from api.permissions import IsStaffOrGuest
+from api.tenant_isolation import set_tenant_context
 
+
+logger = logging.getLogger("airbee.notifications")
 
 def _serialize(row, columns):
     obj = dict(zip(columns, row))
@@ -21,7 +26,10 @@ def _serialize(row, columns):
 class NotificationList(APIView):
     """GET /api/notifications  POST /api/notifications/read-all"""
 
+    permission_classes = [IsStaffOrGuest]
+
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         try:
             with connection.cursor() as cur:
@@ -45,13 +53,16 @@ class NotificationList(APIView):
                 unread_count = int((cur.fetchone() or [0])[0] or 0)
             return Response({"notifications": rows, "unread_count": unread_count})
         except Exception:
-            return Response({"notifications": [], "unread_count": 0})
+            raise
 
 
 class NotificationMarkRead(APIView):
     """PUT /api/notifications/{id}/read"""
 
+    permission_classes = [IsStaffOrGuest]
+
     def put(self, request, notification_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         try:
             with connection.cursor() as cur:
@@ -66,7 +77,7 @@ class NotificationMarkRead(APIView):
                         [notification_id, tenant_id],
                     )
         except Exception:
-            pass
+            raise
         return Response({"success": True})
 
 
@@ -82,4 +93,4 @@ def create_notification(tenant_id, notif_type, title, message, related_id=None, 
                 [str(uuid.uuid4()), tenant_id, notif_type, title, message, related_id, related_type],
             )
     except Exception:
-        pass
+        logger.exception("notification_create_failed")

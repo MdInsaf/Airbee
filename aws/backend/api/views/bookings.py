@@ -1,10 +1,18 @@
 import uuid
+import logging
 from datetime import datetime
 from decimal import Decimal
 from django.db import connection, transaction
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+
+from api.idempotency import idempotent
+from api.permissions import CanManageBookings
+from api.tenant_isolation import set_tenant_context
+
+
+logger = logging.getLogger("airbee.bookings")
 
 
 ALLOWED_BOOKING_STATUS = {"pending", "confirmed", "cancelled", "completed"}
@@ -54,7 +62,10 @@ def _normalize_uuid(raw_value):
 
 
 class BookingList(APIView):
+    permission_classes = [CanManageBookings]
+
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
             cur.execute(
@@ -73,6 +84,7 @@ class BookingList(APIView):
             rows = [_serialize(r, cols) for r in cur.fetchall()]
         return Response(rows)
 
+    @idempotent("booking:create")
     def post(self, request):
         tenant_id = request.user.tenant_id
         d = request.data
@@ -196,7 +208,10 @@ class BookingList(APIView):
 
 
 class BookingDetail(APIView):
+    permission_classes = [CanManageBookings]
+
     def put(self, request, booking_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         new_status = d.get("status")
@@ -306,7 +321,10 @@ class BookingDetail(APIView):
                         },
                     )
             except Exception:
-                pass
+                logger.exception(
+                    "booking_confirmation_email_failed",
+                    extra={"entity_type": "bookings", "entity_id": str(booking_id)},
+                )
 
         return Response(booking)
 
@@ -415,6 +433,9 @@ class BookingBulkCreate(APIView):
     All-or-nothing: if any row fails validation, none are created.
     """
 
+    permission_classes = [CanManageBookings]
+
+    @idempotent("booking:bulk-create")
     def post(self, request):
         tenant_id = request.user.tenant_id
         items = request.data.get("bookings")

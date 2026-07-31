@@ -19,7 +19,8 @@ $PROJECT     = "airbee"
 $LAMBDA_ROLE = "airbee-lambda-role"
 $DB_NAME     = "airbee"
 $DB_USER     = "airbee"
-$DB_PASS     = "AirBee2025!" # Change this to your preferred password
+$DB_PASS     = $env:DB_PASSWORD
+$DJANGO_SECRET = $env:DJANGO_SECRET_KEY
 $ROOT        = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BACKEND_DIR = "$ROOT\aws\backend"
 $TRIGGER_DIR = "$ROOT\aws\cognito-trigger-py"
@@ -31,6 +32,12 @@ $AMPLIFY_BRANCH = if ($env:AMPLIFY_BRANCH) { $env:AMPLIFY_BRANCH } else { "main"
 $AMPLIFY_REGION = if ($env:AMPLIFY_REGION) { $env:AMPLIFY_REGION } else { $REGION }
 $VITE_PLATFORM_HOSTS = if ($env:VITE_PLATFORM_HOSTS) { $env:VITE_PLATFORM_HOSTS } else { $PLATFORM_HOSTS }
 $VITE_PUBLIC_BASE_DOMAIN = if ($env:VITE_PUBLIC_BASE_DOMAIN) { $env:VITE_PUBLIC_BASE_DOMAIN } else { $PUBLIC_BASE_DOMAIN }
+$API_THROTTLE_RATE = if ($env:API_THROTTLE_RATE) { $env:API_THROTTLE_RATE } else { "50" }
+$API_THROTTLE_BURST = if ($env:API_THROTTLE_BURST) { $env:API_THROTTLE_BURST } else { "100" }
+
+if (-not $DB_PASS -or -not $DJANGO_SECRET) {
+    throw "Set DB_PASSWORD and DJANGO_SECRET_KEY in the environment before deploying."
+}
 
 Write-Host ""
 Write-Host "======================================" -ForegroundColor Cyan
@@ -281,59 +288,42 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "  DB Host: $DB_HOST" -ForegroundColor Green
 
-# ── Step 4: Run DB Schema ─────────────────────────────────────
+# ── Step 4: Run ordered DB migrations ─────────────────────────
 Write-Host ""
-Write-Host "[4/8] Running database schema..." -ForegroundColor Yellow
+Write-Host "[4/8] Running ordered database migrations..." -ForegroundColor Yellow
 
-$schemaFile = "$ROOT\aws\database\schema.sql"
-if (Test-Path $schemaFile) {
-    python -c @"
-import psycopg2, sys
-try:
-    conn = psycopg2.connect(host='$DB_HOST', port=5432, dbname='$DB_NAME', user='$DB_USER', password='$DB_PASS', sslmode='require', connect_timeout=15)
-    conn.autocommit = True
-    with open(r'$schemaFile', 'r') as f:
-        sql = f.read()
-    with conn.cursor() as cur:
-        cur.execute(sql)
-    conn.close()
-    print('Schema applied successfully')
-except Exception as e:
-    print(f'Schema error: {e}', file=sys.stderr)
-    sys.exit(1)
-"@
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  WARNING: Schema may already exist or there was an error. Continuing..." -ForegroundColor Yellow
-    } else {
-        Write-Host "  Schema applied." -ForegroundColor Green
-    }
-} else {
-    Write-Host "  Schema file not found at $schemaFile" -ForegroundColor Red
+$migrationRunner = "$ROOT\aws\database\migrate.py"
+if (-not (Test-Path $migrationRunner)) {
+    throw "Migration runner not found at $migrationRunner"
 }
 
-$migrationsDir = "$ROOT\aws\database\migrations"
-if (Test-Path $migrationsDir) {
-    python -c @"
-import pathlib, psycopg2, sys
-try:
-    conn = psycopg2.connect(host='$DB_HOST', port=5432, dbname='$DB_NAME', user='$DB_USER', password='$DB_PASS', sslmode='require', connect_timeout=15)
-    conn.autocommit = True
-    migration_dir = pathlib.Path(r'$migrationsDir')
-    for path in sorted(migration_dir.glob('*.sql')):
-        with open(path, 'r', encoding='utf-8') as f:
-            sql = f.read()
-        with conn.cursor() as cur:
-            cur.execute(sql)
-        print(f'Applied migration: {path.name}')
-    conn.close()
-except Exception as e:
-    print(f'Migration error: {e}', file=sys.stderr)
-    sys.exit(1)
-"@
+$previousDbEnv = @{
+    DB_HOST = $env:DB_HOST
+    DB_PORT = $env:DB_PORT
+    DB_NAME = $env:DB_NAME
+    DB_USER = $env:DB_USER
+    DB_PASSWORD = $env:DB_PASSWORD
+    DB_SSLMODE = $env:DB_SSLMODE
+}
+try {
+    $env:DB_HOST = $DB_HOST
+    $env:DB_PORT = "5432"
+    $env:DB_NAME = $DB_NAME
+    $env:DB_USER = $DB_USER
+    $env:DB_PASSWORD = $DB_PASS
+    $env:DB_SSLMODE = "require"
+    python $migrationRunner
     if ($LASTEXITCODE -ne 0) {
         throw "Database migrations failed."
-    } else {
-        Write-Host "  Migrations applied." -ForegroundColor Green
+    }
+    Write-Host "  Database migrations applied." -ForegroundColor Green
+} finally {
+    foreach ($key in $previousDbEnv.Keys) {
+        if ($null -eq $previousDbEnv[$key]) {
+            Remove-Item -Path "Env:$key" -ErrorAction SilentlyContinue
+        } else {
+            Set-Item -Path "Env:$key" -Value $previousDbEnv[$key]
+        }
     }
 }
 
@@ -419,11 +409,14 @@ $backendEnvMap = [ordered]@{
     DB_NAME              = $DB_NAME
     DB_USER              = $DB_USER
     DB_PASSWORD          = $DB_PASS
+    DB_CONN_MAX_AGE      = "0"
     COGNITO_USER_POOL_ID = $POOL_ID
+    COGNITO_CLIENT_ID    = $CLIENT_ID
     BEDROCK_REGION       = $REGION
     BEDROCK_MODEL_ID     = "anthropic.claude-3-haiku-20240307-v1:0"
     BEDROCK_FALLBACK_MODEL_ID = "apac.amazon.nova-lite-v1:0"
-    DJANGO_SECRET_KEY    = "airbee-hackathon-secret-2025"
+    DJANGO_SECRET_KEY    = $DJANGO_SECRET
+    LOG_LEVEL            = "INFO"
 }
 if ($PUBLIC_BASE_DOMAIN) { $backendEnvMap["PUBLIC_BASE_DOMAIN"] = $PUBLIC_BASE_DOMAIN }
 if ($PUBLIC_CNAME_TARGET) { $backendEnvMap["PUBLIC_CNAME_TARGET"] = $PUBLIC_CNAME_TARGET }
@@ -611,7 +604,7 @@ if ($existingApi) {
     $apiResult = python -m awscli apigatewayv2 create-api `
         --name "airbee-api" `
         --protocol-type HTTP `
-        --cors-configuration 'AllowOrigins=["*"],AllowMethods=["*"],AllowHeaders=["Authorization","Content-Type"]' `
+        --cors-configuration 'AllowOrigins=["*"],AllowMethods=["*"],AllowHeaders=["Authorization","Content-Type","Idempotency-Key","X-Request-ID"],ExposeHeaders=["X-Request-ID","Idempotency-Key","Idempotency-Replayed"]' `
         --region $REGION `
         --output json | ConvertFrom-Json
     $API_ID = $apiResult.ApiId
@@ -621,7 +614,7 @@ if ($existingApi) {
 # Ensure CORS is configured (important for Amplify frontend + preflight)
 python -m awscli apigatewayv2 update-api `
     --api-id $API_ID `
-    --cors-configuration 'AllowOrigins=["*"],AllowMethods=["*"],AllowHeaders=["Authorization","Content-Type"]' `
+    --cors-configuration 'AllowOrigins=["*"],AllowMethods=["*"],AllowHeaders=["Authorization","Content-Type","Idempotency-Key","X-Request-ID"],ExposeHeaders=["X-Request-ID","Idempotency-Key","Idempotency-Replayed"]' `
     --region $REGION `
     --output json | Out-Null
 
@@ -757,6 +750,7 @@ if ($defaultStage) {
         --api-id $API_ID `
         --stage-name '$default' `
         --auto-deploy `
+        --default-route-settings "ThrottlingBurstLimit=$API_THROTTLE_BURST,ThrottlingRateLimit=$API_THROTTLE_RATE" `
         --region $REGION `
         --output json | Out-Null
 } else {
@@ -764,6 +758,7 @@ if ($defaultStage) {
         --api-id $API_ID `
         --stage-name '$default' `
         --auto-deploy `
+        --default-route-settings "ThrottlingBurstLimit=$API_THROTTLE_BURST,ThrottlingRateLimit=$API_THROTTLE_RATE" `
         --region $REGION `
         --output json | Out-Null
 }

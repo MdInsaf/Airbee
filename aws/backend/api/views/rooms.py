@@ -4,6 +4,9 @@ from django.db import connection
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from api.exceptions import safe_error_response
+from api.permissions import IsStaff
+from api.tenant_isolation import set_tenant_context
 
 ALLOWED_ROOM_STATUS = {"available", "maintenance", "unavailable"}
 ALLOWED_HOUSEKEEPING_STATUS = {"clean", "dirty", "in_progress", "inspecting"}
@@ -64,14 +67,17 @@ def _normalize_room_payload(data, partial=False):
 
 
 class RoomList(APIView):
+    permission_classes = [IsStaff]
+
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
             cur.execute(
                 """
                 SELECT r.id, r.name, r.description, r.category_id,
                        r.max_guests, r.base_price, r.status, r.housekeeping_status,
-                       r.amenities, r.images, r.created_at
+                       r.amenities, r.images, r.ical_feed_token, r.created_at
                 FROM rooms r
                 WHERE r.tenant_id = %s
                 ORDER BY r.created_at DESC
@@ -83,6 +89,7 @@ class RoomList(APIView):
         return Response(rows)
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = _normalize_room_payload(request.data)
         if not d["name"]:
@@ -128,10 +135,10 @@ class RoomList(APIView):
                     )
                     created_ids.append(room_id)
         except Exception as exc:
-            print(f"Room create error: {exc}")
-            return Response(
-                {"error": f"Could not create room: {exc}"},
-                status=status.HTTP_400_BAD_REQUEST,
+            return safe_error_response(
+                "Could not create room",
+                code="ROOM_CREATE_FAILED",
+                exc=exc,
             )
 
         if count > 1:
@@ -140,7 +147,10 @@ class RoomList(APIView):
 
 
 class RoomDetail(APIView):
+    permission_classes = [IsStaff]
+
     def put(self, request, room_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = _normalize_room_payload(request.data, partial=True)
         if d["status"] and d["status"] not in ALLOWED_ROOM_STATUS:
@@ -175,14 +185,15 @@ class RoomDetail(APIView):
                     ],
                 )
         except Exception as exc:
-            print(f"Room update error: {exc}")
-            return Response(
-                {"error": f"Could not update room: {exc}"},
-                status=status.HTTP_400_BAD_REQUEST,
+            return safe_error_response(
+                "Could not update room",
+                code="ROOM_UPDATE_FAILED",
+                exc=exc,
             )
         return Response({"success": True})
 
     def delete(self, request, room_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
             cur.execute(

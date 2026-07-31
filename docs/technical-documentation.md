@@ -38,7 +38,7 @@ Admin Browser                          API Gateway (fu6frsnvui — unified)
 | S3 Bucket | airbee-frontend-132334512551 |
 | CloudFront (booking) | E23MH1U2RG8SWS → d1yw21sr8485y1.cloudfront.net |
 | CloudFront (dashboard) | EIH3378NUD87F → d2ski8nitudjya.cloudfront.net |
-| Database | Supabase PostgreSQL (aws-1-ap-south-1.pooler.supabase.com) |
+| Database | PostgreSQL 15+ (RDS, Supabase, or self-hosted) |
 | SES Region | ap-south-1 |
 | SES Sender | bookings@ascendersservices.in |
 
@@ -109,8 +109,23 @@ ALLOWED_PAYMENT_STATUS = {"unpaid", "partial", "paid"}
 **`PublicSiteBookingCreateView`**
 - `POST /public/site/bookings` — Create a guest booking via host resolution.
 
+#### Idempotent booking writes
+
+`POST /api/bookings`, `POST /api/bookings/bulk`, and both public booking
+creation routes require an `Idempotency-Key` header containing 8-128 safe
+characters. Successful responses are stored for 24 hours in the same database
+transaction as the booking. Reusing the key with the same request replays the
+original response; reusing it with different content returns HTTP 409. The web
+client retries a transport failure once with the same key.
+
 **`PublicBookingLookup`**
-- `GET /public/booking-lookup?email=&booking_id=` — Returns up to 10 bookings for the given email. Used by the guest self-service portal.
+- `GET /public/booking-lookup?token=` — Resolves exactly one booking from a signed, expiring link issued when the booking is created.
+
+**`PublicBookingCancelView`**
+- `POST /public/bookings/{booking_id}/cancel` — Cancels a pending booking only when the request includes its matching signed access token.
+
+**`ChannelICalExport`**
+- `GET /public/ical/{feed_token}.ics` — Exports room availability through a random, revocable token without exposing guest details.
 
 #### Key Functions
 
@@ -197,6 +212,7 @@ Both emails use a shared HTML wrapper with:
 **`BookingPaymentList`**
 - `GET /api/bookings/{booking_id}/payments` — List all payments for a booking.
 - `POST /api/bookings/{booking_id}/payments` — Record a payment.
+  - Requires `Idempotency-Key`; exact retries replay the original payment without changing the balance again
   - Updates `bookings.amount_paid` by summing all payments
   - Auto-updates `payment_status`: `unpaid` → `partial` → `paid` based on total paid vs total amount
 
@@ -507,6 +523,15 @@ shouldRenderPublicBookingAtRoot(host)  // true for booking domains, false for pl
 
 ## Deployment
 
+### Observability and health
+
+The backend emits structured JSON request and error events. Each request
+receives an `X-Request-ID`, successful authenticated mutations are recorded in
+`audit_logs`, and internal exception details are never returned to API clients.
+
+- `GET /health/live` — process liveness without dependency calls
+- `GET /health/ready` — PostgreSQL readiness (`503` when unavailable)
+
 ### Backend Deploy
 ```bash
 # Rebuild ZIP
@@ -522,10 +547,18 @@ python -m awscli lambda update-function-code --function-name airbee-platform-api
 Push to `deploy` branch — GitHub Actions builds and uploads to S3, then invalidates both CloudFront distributions automatically.
 
 ### Database Migrations
-```cmd
-set PGPASSWORD=Airbee@@@!!
-"C:\Program Files\PostgreSQL\18\bin\psql.exe" -h aws-1-ap-south-1.pooler.supabase.com -U postgres.dlvrgnslknfehtywtzyh -d postgres -f "migration.sql"
+```bash
+DB_HOST=<database-host> \
+DB_PORT=5432 \
+DB_NAME=airbee \
+DB_USER=airbee \
+DB_PASSWORD=<secret> \
+DB_SSLMODE=require \
+python aws/database/migrate.py
 ```
+
+`aws/database/migrations/` is the only authoritative migration sequence.
+Applied versions and checksums are recorded in `airbee_schema_migrations`.
 
 ---
 
@@ -539,6 +572,7 @@ set PGPASSWORD=Airbee@@@!!
 | `room_categories` | Room type groupings |
 | `guest_profiles` | Guest directory |
 | `booking_payments` | Individual payment transactions |
+| `api_idempotency_keys` | 24-hour replay ledger for booking and payment writes |
 | `invoices` | Generated invoices |
 | `room_pricing_rules` | Dynamic pricing rules |
 | `staff_members` | Staff directory |

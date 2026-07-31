@@ -1,9 +1,14 @@
 import uuid
+import logging
 from decimal import Decimal
 from django.db import connection
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from api.permissions import IsOwner
+from api.tenant_isolation import set_tenant_context
 
+
+logger = logging.getLogger("airbee.audit")
 
 def _serialize(row, columns):
     obj = dict(zip(columns, row))
@@ -20,7 +25,10 @@ def _serialize(row, columns):
 class AuditLogList(APIView):
     """GET /api/audit-logs?entity_type=bookings&limit=50"""
 
+    permission_classes = [IsOwner]
+
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         entity_type = request.GET.get("entity_type")
         limit = min(int(request.GET.get("limit") or 100), 200)
@@ -47,7 +55,8 @@ class AuditLogList(APIView):
                 rows = [_serialize(r, cols) for r in cur.fetchall()]
             return Response(rows)
         except Exception:
-            return Response([])
+            logger.exception("audit_log_read_failed")
+            raise
 
 
 def log_action(tenant_id, action, entity_type, entity_id=None, old_value=None, new_value=None, request=None):
@@ -84,4 +93,10 @@ def log_action(tenant_id, action, entity_type, entity_id=None, old_value=None, n
                 ],
             )
     except Exception:
-        pass
+        logger.exception(
+            "audit_log_write_failed",
+            extra={
+                "entity_type": entity_type,
+                "entity_id": str(entity_id or ""),
+            },
+        )

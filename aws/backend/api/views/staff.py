@@ -4,6 +4,8 @@ from django.db import connection
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from api.exceptions import safe_error_response
+from api.permissions import CanManageStaff
 
 
 ALLOWED_ROLES = {"manager", "front_desk", "housekeeping", "maintenance", "staff"}
@@ -22,7 +24,10 @@ def _serialize(row, columns):
 
 
 class StaffList(APIView):
+    permission_classes = [CanManageStaff]
+
     def get(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         try:
             with connection.cursor() as cur:
@@ -40,9 +45,10 @@ class StaffList(APIView):
                 rows = [_serialize(r, cols) for r in cur.fetchall()]
             return Response(rows)
         except Exception:
-            return Response([])
+            raise
 
     def post(self, request):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         name = (d.get("name") or "").strip()
@@ -75,12 +81,19 @@ class StaffList(APIView):
                 cols = [c[0] for c in cur.description]
                 row = _serialize(cur.fetchone(), cols)
         except Exception as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return safe_error_response(
+                "Could not create staff member",
+                code="STAFF_CREATE_FAILED",
+                exc=exc,
+            )
         return Response(row, status=status.HTTP_201_CREATED)
 
 
 class StaffDetail(APIView):
+    permission_classes = [CanManageStaff]
+
     def put(self, request, staff_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         d = request.data
         role = d.get("role")
@@ -116,10 +129,15 @@ class StaffDetail(APIView):
                 if not cur.fetchone():
                     return Response({"error": "Staff member not found"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return safe_error_response(
+                "Could not update staff member",
+                code="STAFF_UPDATE_FAILED",
+                exc=exc,
+            )
         return Response({"success": True})
 
     def delete(self, request, staff_id):
+        set_tenant_context(request)
         tenant_id = request.user.tenant_id
         with connection.cursor() as cur:
             cur.execute(

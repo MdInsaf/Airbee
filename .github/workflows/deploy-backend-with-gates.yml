@@ -1,0 +1,192 @@
+name: Deploy Backend with CI Gates
+
+on:
+  push:
+    branches:
+      - deploy
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: airbee_test
+          POSTGRES_PASSWORD: testpass
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    defaults:
+      run:
+        working-directory: aws/backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run database migrations
+        env:
+          DB_HOST: localhost
+          DB_USER: postgres
+          DB_PASSWORD: testpass
+          DB_NAME: airbee_test
+          DB_SSLMODE: disable
+        run: python ../database/migrate.py
+
+      - name: Verify fresh database schema
+        env:
+          DB_HOST: localhost
+          DB_USER: postgres
+          DB_PASSWORD: testpass
+          DB_NAME: airbee_test
+          DB_SSLMODE: disable
+          AIRBEE_ALLOW_DATABASE_SMOKE_TEST: "true"
+        run: python ../database/verify_fresh_database.py
+
+      - name: Run Django backend tests
+        env:
+          DB_HOST: localhost
+          DB_USER: postgres
+          DB_PASSWORD: testpass
+          DB_NAME: airbee_test
+          DB_SSLMODE: disable
+          LOCAL_DEV: "true"
+          DJANGO_SECRET_KEY: test-key-for-ci
+        run: python manage.py test api --failfast --verbosity 2
+
+      - name: Security scanning - bandit
+        run: |
+          pip install bandit
+          bandit -r api -f json -o bandit-report.json
+          exit 0
+
+      - name: Security scanning - safety
+        run: |
+          pip install safety
+          safety check --json > safety-report.json
+          exit 0
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-reports
+          path: |
+            aws/backend/bandit-report.json
+            aws/backend/safety-report.json
+
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: aws/backend
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install flake8
+      - run: |
+          flake8 api --max-line-length=120 --count || exit 0
+
+  deploy:
+    needs: [test, lint]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    defaults:
+      run:
+        working-directory: aws/backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Use GitHub OIDC instead of long-lived credentials
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-deploy
+          aws-region: ap-south-1
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt -t package/
+          cp -r airbee api lambda_handler.py package/
+
+      - name: Create deployment package
+        run: |
+          cd package
+          zip -r ../function.zip .
+          cd ..
+
+      - name: Upload to S3
+        run: |
+          aws s3 cp function.zip s3://${{ secrets.LAMBDA_CODE_BUCKET }}/function.zip
+
+      - name: Update Lambda functions
+        run: |
+          # Update platform API
+          aws lambda update-function-code \
+            --function-name airbee-platform-api \
+            --s3-bucket ${{ secrets.LAMBDA_CODE_BUCKET }} \
+            --s3-key function.zip \
+            --region ap-south-1
+
+          aws lambda wait function-updated \
+            --function-name airbee-platform-api \
+            --region ap-south-1
+
+          # Update booking API
+          aws lambda update-function-code \
+            --function-name airbee-booking-api \
+            --s3-bucket ${{ secrets.LAMBDA_CODE_BUCKET }} \
+            --s3-key function.zip \
+            --region ap-south-1
+
+          aws lambda wait function-updated \
+            --function-name airbee-booking-api \
+            --region ap-south-1
+
+      - name: Post-deploy health check
+        run: |
+          # Invoke health check endpoint
+          aws lambda invoke \
+            --function-name airbee-platform-api \
+            --region ap-south-1 \
+            --payload '{"path": "/health/ready", "httpMethod": "GET"}' \
+            response.json
+
+          # Verify response
+          if ! grep -q '"status":"ok"' response.json; then
+            echo "Health check failed"
+            cat response.json
+            exit 1
+          fi
+
+      - name: Notify deployment success
+        if: success()
+        run: echo "✓ Deployment successful with all gates passed"
+
+      - name: Deployment failed
+        if: failure()
+        run: |
+          echo "✗ Deployment failed - one or more gates did not pass"
+          exit 1

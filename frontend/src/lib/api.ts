@@ -24,6 +24,17 @@ const API_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_URL || "https://fu6
 const LOCAL_DEV = import.meta.env.VITE_LOCAL_DEV === "true";
 const AUTH_CACHE_BUFFER_MS = 30_000;
 
+export interface RequestOptions {
+  idempotencyKey?: string;
+}
+
+export function createIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+}
+
 let cachedAuthHeader: string | null = null;
 let cachedAuthExpiry = 0;
 let pendingAuthHeader: Promise<string> | null = null;
@@ -78,17 +89,29 @@ async function getAuthHeader(): Promise<string> {
 async function request<T>(
   method: string,
   path: string,
-  body?: unknown
+  body?: unknown,
+  options: RequestOptions = {}
 ): Promise<T> {
   const auth = await getAuthHeader();
-  const res = await fetch(buildApiUrl(path), {
+  const idempotencyKey = method === "POST"
+    ? options.idempotencyKey || createIdempotencyKey()
+    : undefined;
+  const init: RequestInit = {
     method,
     headers: {
       Authorization: auth,
       "Content-Type": "application/json",
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
+  };
+  let res: Response;
+  try {
+    res = await fetch(buildApiUrl(path), init);
+  } catch (error) {
+    if (method !== "POST") throw error;
+    res = await fetch(buildApiUrl(path), init);
+  }
 
   if (!res.ok) {
     const text = await res.text();
@@ -102,15 +125,27 @@ async function request<T>(
 async function publicRequest<T>(
   method: string,
   path: string,
-  body?: unknown
+  body?: unknown,
+  options: RequestOptions = {}
 ): Promise<T> {
-  const res = await fetch(buildApiUrl(path), {
+  const idempotencyKey = method === "POST"
+    ? options.idempotencyKey || createIdempotencyKey()
+    : undefined;
+  const init: RequestInit = {
     method,
     headers: {
       "Content-Type": "application/json",
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
+  };
+  let res: Response;
+  try {
+    res = await fetch(buildApiUrl(path), init);
+  } catch (error) {
+    if (method !== "POST") throw error;
+    res = await fetch(buildApiUrl(path), init);
+  }
 
   if (!res.ok) {
     const text = await res.text();
@@ -123,11 +158,13 @@ async function publicRequest<T>(
 
 export const api = {
   get: <T>(path: string) => request<T>("GET", path),
-  post: <T>(path: string, body: unknown) => request<T>("POST", path, body),
+  post: <T>(path: string, body: unknown, options?: RequestOptions) =>
+    request<T>("POST", path, body, options),
   put: <T>(path: string, body: unknown) => request<T>("PUT", path, body),
   delete: <T>(path: string) => request<T>("DELETE", path),
   publicGet: <T>(path: string) => publicRequest<T>("GET", path),
-  publicPost: <T>(path: string, body: unknown) => publicRequest<T>("POST", path, body),
+  publicPost: <T>(path: string, body: unknown, options?: RequestOptions) =>
+    publicRequest<T>("POST", path, body, options),
 
   /** Call an AI endpoint — returns parsed JSON response */
   ai: async <T>(endpoint: string, body: unknown = {}): Promise<T> => {
