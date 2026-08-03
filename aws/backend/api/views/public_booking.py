@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
+from django.core.cache import cache
 from django.db import connection, transaction
 from rest_framework import status
 from rest_framework.permissions import AllowAny
@@ -17,6 +18,7 @@ from api.guest_access import (
     issue_guest_access_token,
     read_guest_access_token,
 )
+from api.idempotency import DEFAULT_MAX_AGE_SECONDS, _idempotency_cache_key
 
 
 _JSON_FIELDS = {"amenities", "images", "booking_theme", "booking_site"}
@@ -485,12 +487,29 @@ def _create_booking_once(property_data, request):
 
 
 def _create_booking(property_data, request):
-    return execute_idempotent(
-        request,
-        property_data["id"],
-        "public-booking:create",
-        lambda: _create_booking_once(property_data, request),
-    )
+    """Idempotent booking creation, scoped by property (there's no authenticated
+    tenant on these AllowAny public endpoints to key off of)."""
+    idempotency_key = request.headers.get("Idempotency-Key", "").strip()
+    if not idempotency_key:
+        return Response(
+            {"code": "IDEMPOTENCY_KEY_REQUIRED", "message": "Idempotency-Key header is required for this operation"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not (1 <= len(idempotency_key) <= 256) or not idempotency_key.isprintable():
+        return Response(
+            {"code": "INVALID_IDEMPOTENCY_KEY", "message": "Idempotency-Key must be 1-256 printable ASCII characters"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    cache_key = _idempotency_cache_key(property_data["id"], idempotency_key)
+    cached_result = cache.get(cache_key)
+    if cached_result is not None:
+        return Response(cached_result["data"], status=cached_result["status"])
+
+    response = _create_booking_once(property_data, request)
+    if isinstance(response, Response) and 200 <= response.status_code < 300:
+        cache.set(cache_key, {"data": response.data, "status": response.status_code}, DEFAULT_MAX_AGE_SECONDS)
+    return response
 
 
 class PublicPropertyView(APIView):
