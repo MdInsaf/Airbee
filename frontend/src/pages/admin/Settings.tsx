@@ -10,7 +10,8 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { buildTenantSiteUrl } from "@/lib/site-hosts";
-import { ExternalLink } from "lucide-react";
+import { validateImageFile, uploadImage } from "@/lib/media-upload";
+import { ExternalLink, Loader2 } from "lucide-react";
 
 type BookingSiteSettings = {
   hero_title?: string;
@@ -43,6 +44,7 @@ type Tenant = {
   currency: string | null;
   timezone: string | null;
   logo_url: string | null;
+  hero_image_url: string | null;
   gst_enabled: boolean;
   gst_percentage: number;
   gst_number: string | null;
@@ -104,6 +106,7 @@ const Settings = () => {
   const [saving, setSaving] = useState(false);
   const [verifyingDomain, setVerifyingDomain] = useState(false);
   const [tenant, setTenant] = useState<Tenant | null>(null);
+  const [uploadingHero, setUploadingHero] = useState(false);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -121,6 +124,25 @@ const Settings = () => {
 
   const update = <K extends keyof Tenant>(field: K, value: Tenant[K]) =>
     setTenant((current) => (current ? { ...current, [field]: value } : current));
+
+  const handleHeroFile = async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    const error = validateImageFile(file);
+    if (error) {
+      toast({ title: "Invalid file", description: error, variant: "destructive" });
+      return;
+    }
+    setUploadingHero(true);
+    try {
+      const url = await uploadImage(file, "hero");
+      update("hero_image_url", url);
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
+      setUploadingHero(false);
+    }
+  };
 
   const updateBookingSite = (field: keyof BookingSiteSettings, value: string) =>
     setTenant((current) =>
@@ -160,6 +182,7 @@ const Settings = () => {
         subdomain: tenant.subdomain,
         domain: tenant.domain,
         booking_site_enabled: tenant.booking_site_enabled,
+        hero_image_url: tenant.hero_image_url,
         contact_email: tenant.contact_email,
         contact_phone: tenant.contact_phone,
         address: tenant.address,
@@ -434,6 +457,36 @@ const Settings = () => {
               onChange={(e) => update("logo_url", e.target.value)}
               placeholder="https://cdn.example.com/logo.png"
             />
+          </div>
+          <div className="space-y-2">
+            <Label>Hero Image</Label>
+            <p className="text-xs text-muted-foreground">Shown behind the booking page title. Recommended: a wide, high-resolution photo.</p>
+            {tenant.hero_image_url && (
+              <div className="h-32 w-full rounded-md overflow-hidden bg-muted">
+                <img src={tenant.hero_image_url} alt="Hero preview" className="w-full h-full object-cover" />
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <Input
+                value={tenant.hero_image_url || ""}
+                onChange={(e) => update("hero_image_url", e.target.value)}
+                placeholder="https://cdn.example.com/hero.jpg"
+                className="flex-1"
+              />
+              <Label htmlFor="hero-image-input">
+                <Button type="button" variant="outline" size="sm" asChild disabled={uploadingHero}>
+                  <span>{uploadingHero ? <Loader2 className="w-4 h-4 animate-spin" /> : "Upload"}</span>
+                </Button>
+              </Label>
+              <input
+                id="hero-image-input"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                disabled={uploadingHero}
+                onChange={(e) => { handleHeroFile(e.target.files); e.target.value = ""; }}
+              />
+            </div>
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">

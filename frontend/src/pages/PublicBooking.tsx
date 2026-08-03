@@ -5,6 +5,7 @@ import { ArrowRight, BedDouble, CalendarDays, CheckCircle2, Mail, MapPin, Phone,
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Carousel, CarouselContent, CarouselItem, CarouselPrevious, CarouselNext } from "@/components/ui/carousel";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,6 +26,7 @@ type PropertyInfo = {
   currency: string | null;
   timezone: string | null;
   logo_url?: string | null;
+  hero_image_url?: string | null;
   booking_site?: {
     hero_title?: string | null;
     hero_subtitle?: string | null;
@@ -322,6 +324,7 @@ const PublicBooking = () => {
     propertyData?.property.domain,
     propertyData?.property.slug
   );
+  const heroImageUrl = propertyData?.property.hero_image_url || null;
   const heroTitle = propertyData?.property.booking_site?.hero_title || propertyData?.property.name || "Book your stay";
   const heroSubtitle =
     propertyData?.property.booking_site?.hero_subtitle ||
@@ -369,6 +372,18 @@ const PublicBooking = () => {
   const inputStyle = isDark
     ? { backgroundColor: "rgba(18,40,32,0.6)", borderColor: "rgba(255,255,255,0.12)", color: "#fffaf2" } as const
     : {} as const;
+  const heroTextStyle = heroImageUrl ? { color: "#ffffff" } as const : textStyle;
+  const heroMutedStyle = heroImageUrl ? { color: "rgba(255,255,255,0.82)" } as const : mutedStyle;
+  const heroPanelStyle = heroImageUrl
+    ? { borderColor: "rgba(255,255,255,0.25)", backgroundColor: "rgba(0,0,0,0.28)", backdropFilter: "blur(10px)" } as const
+    : softPanelStyle;
+  const heroCardStyle = heroImageUrl
+    ? { borderColor: "rgba(255,255,255,0.25)", backgroundColor: "rgba(0,0,0,0.32)", backdropFilter: "blur(10px)" } as const
+    : cardStyle;
+  const heroBadgeStyle = heroImageUrl
+    ? { borderColor: "rgba(255,255,255,0.4)", backgroundColor: "rgba(255,255,255,0.14)", color: "#ffffff" } as const
+    : brandBadgeStyle;
+  const heroIconStyle = heroImageUrl ? { color: "#ffffff" } as const : accentIconStyle;
 
   const scrollToReservation = () => {
     reservationPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -477,70 +492,81 @@ const PublicBooking = () => {
     <div className="min-h-screen" style={pageStyle}>
       <div className="mx-auto max-w-7xl px-4 py-6 pb-28 sm:px-6 sm:py-8 xl:px-8 xl:pb-8">
         <div className="space-y-6">
-          <section className="overflow-hidden rounded-[2rem] border bg-background/90 shadow-sm backdrop-blur" style={cardStyle}>
-            <div className="grid gap-6 p-5 sm:p-6 xl:grid-cols-[minmax(0,1fr)_260px] xl:items-end">
-              <div className="space-y-5">
-                <Badge variant="outline" className="gap-2 px-3 py-1 text-xs uppercase tracking-[0.24em]" style={brandBadgeStyle}>
-                  <BedDouble className="h-3.5 w-3.5" style={accentIconStyle} />
-                  AIR BEE Booking Engine
-                </Badge>
-                <div className="space-y-3">
-                  {propertyData?.property.logo_url ? (
-                    <div className="flex items-center gap-3">
-                      <img
-                        src={propertyData.property.logo_url}
-                        alt={`${propertyData.property.name} logo`}
-                        className="h-14 w-14 rounded-2xl border bg-background object-cover p-1"
-                        style={{ borderColor: withAlpha(primaryColor, 0.2) }}
-                      />
-                      <div className="text-sm text-muted-foreground">
-                        <p className="font-medium text-foreground">{propertyData.property.name}</p>
-                        <p>Direct booking website</p>
+          <section className="relative overflow-hidden rounded-[2rem] border shadow-sm">
+            {heroImageUrl && (
+              <>
+                <img src={heroImageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/25 to-black/45" />
+              </>
+            )}
+            <div
+              className={heroImageUrl ? "relative" : "relative bg-background/90 backdrop-blur"}
+              style={heroImageUrl ? undefined : cardStyle}
+            >
+              <div className="grid gap-6 p-5 sm:p-6 xl:grid-cols-[minmax(0,1fr)_260px] xl:items-end">
+                <div className="space-y-5">
+                  <Badge variant="outline" className="gap-2 px-3 py-1 text-xs uppercase tracking-[0.24em]" style={heroBadgeStyle}>
+                    <BedDouble className="h-3.5 w-3.5" style={heroIconStyle} />
+                    AIR BEE Booking Engine
+                  </Badge>
+                  <div className="space-y-3">
+                    {propertyData?.property.logo_url ? (
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={propertyData.property.logo_url}
+                          alt={`${propertyData.property.name} logo`}
+                          className="h-14 w-14 rounded-2xl border bg-background object-cover p-1"
+                          style={{ borderColor: heroImageUrl ? "rgba(255,255,255,0.4)" : withAlpha(primaryColor, 0.2) }}
+                        />
+                        <div className="text-sm" style={heroMutedStyle}>
+                          <p className="font-medium" style={heroTextStyle}>{propertyData.property.name}</p>
+                          <p>Direct booking website</p>
+                        </div>
                       </div>
+                    ) : null}
+                    <h1 className="text-3xl font-bold tracking-tight sm:text-4xl xl:text-5xl" style={{ ...heroTextStyle, ...serifHeadingStyle }}>
+                      {heroTitle}
+                    </h1>
+                    <p className="max-w-2xl text-sm leading-6 sm:text-base" style={heroMutedStyle}>
+                      {heroSubtitle}
+                    </p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-2xl border p-4" style={heroPanelStyle}>
+                      <p className="text-[11px] uppercase tracking-[0.2em]" style={heroMutedStyle}>Available now</p>
+                      <p className="mt-2 text-2xl font-semibold" style={heroTextStyle}>{propertyData ? availableRooms : "--"}</p>
+                      <p className="text-xs" style={heroMutedStyle}>
+                        {propertyData ? "Rooms matching the selected dates" : "Load a property to see inventory"}
+                      </p>
                     </div>
-                  ) : null}
-                  <h1 className="text-3xl font-bold tracking-tight sm:text-4xl xl:text-5xl" style={{ ...textStyle, ...serifHeadingStyle }}>
-                    {heroTitle}
-                  </h1>
-                  <p className="max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base" style={mutedStyle}>
-                    {heroSubtitle}
-                  </p>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-2xl border p-4" style={softPanelStyle}>
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground" style={mutedStyle}>Available now</p>
-                    <p className="mt-2 text-2xl font-semibold" style={textStyle}>{propertyData ? availableRooms : "--"}</p>
-                    <p className="text-xs text-muted-foreground" style={mutedStyle}>
-                      {propertyData ? "Rooms matching the selected dates" : "Load a property to see inventory"}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border p-4" style={softPanelStyle}>
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground" style={mutedStyle}>Stay length</p>
-                    <p className="mt-2 text-2xl font-semibold" style={textStyle}>{propertyData ? nights : "--"}</p>
-                    <p className="text-xs text-muted-foreground" style={mutedStyle}>
-                      {propertyData ? "Night(s) in your current search" : "Choose check-in and check-out"}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border p-4" style={softPanelStyle}>
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground" style={mutedStyle}>Guest count</p>
-                    <p className="mt-2 text-2xl font-semibold" style={textStyle}>{search.guests}</p>
-                    <p className="text-xs text-muted-foreground" style={mutedStyle}>Capacity filter applied to each room</p>
+                    <div className="rounded-2xl border p-4" style={heroPanelStyle}>
+                      <p className="text-[11px] uppercase tracking-[0.2em]" style={heroMutedStyle}>Stay length</p>
+                      <p className="mt-2 text-2xl font-semibold" style={heroTextStyle}>{propertyData ? nights : "--"}</p>
+                      <p className="text-xs" style={heroMutedStyle}>
+                        {propertyData ? "Night(s) in your current search" : "Choose check-in and check-out"}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border p-4" style={heroPanelStyle}>
+                      <p className="text-[11px] uppercase tracking-[0.2em]" style={heroMutedStyle}>Guest count</p>
+                      <p className="mt-2 text-2xl font-semibold" style={heroTextStyle}>{search.guests}</p>
+                      <p className="text-xs" style={heroMutedStyle}>Capacity filter applied to each room</p>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-                <div className="rounded-2xl border bg-background/80 p-4" style={cardStyle}>
-                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground" style={mutedStyle}>Currency</p>
-                  <p className="mt-2 text-lg font-semibold" style={textStyle}>{propertyData?.property.currency || "INR"}</p>
-                </div>
-                <div className="rounded-2xl border bg-background/80 p-4" style={cardStyle}>
-                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground" style={mutedStyle}>Timezone</p>
-                  <p className="mt-2 text-lg font-semibold" style={textStyle}>{propertyData?.property.timezone || "Asia/Kolkata"}</p>
-                </div>
-                <div className="rounded-2xl border bg-background/80 p-4" style={cardStyle}>
-                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground" style={mutedStyle}>Property slug</p>
-                  <p className="mt-2 break-all text-lg font-semibold" style={textStyle}>{propertyData?.property.slug || slugInput || "--"}</p>
+                <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+                  <div className="rounded-2xl border p-4" style={heroCardStyle}>
+                    <p className="text-xs uppercase tracking-[0.2em]" style={heroMutedStyle}>Currency</p>
+                    <p className="mt-2 text-lg font-semibold" style={heroTextStyle}>{propertyData?.property.currency || "INR"}</p>
+                  </div>
+                  <div className="rounded-2xl border p-4" style={heroCardStyle}>
+                    <p className="text-xs uppercase tracking-[0.2em]" style={heroMutedStyle}>Timezone</p>
+                    <p className="mt-2 text-lg font-semibold" style={heroTextStyle}>{propertyData?.property.timezone || "Asia/Kolkata"}</p>
+                  </div>
+                  <div className="rounded-2xl border p-4" style={heroCardStyle}>
+                    <p className="text-xs uppercase tracking-[0.2em]" style={heroMutedStyle}>Property slug</p>
+                    <p className="mt-2 break-all text-lg font-semibold" style={heroTextStyle}>{propertyData?.property.slug || slugInput || "--"}</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -651,7 +677,6 @@ const PublicBooking = () => {
                       propertyData.rooms.map((room) => {
                         const amenities = normalizeStringArray(room.amenities);
                         const images = normalizeStringArray(room.images);
-                        const firstImage = images[0] || null;
                         const minStayViolation = nights > 0 && nights < (room.minimum_stay || 1);
                         const guestViolation = search.guests > room.max_guests;
                         const canReserve = !minStayViolation && !guestViolation;
@@ -659,15 +684,29 @@ const PublicBooking = () => {
                         return (
                           <article
                             key={room.id}
-                            className="rounded-[1.75rem] border bg-muted/30 overflow-hidden transition-colors hover:border-primary/40"
+                            className="rounded-[1.75rem] border bg-muted/30 overflow-hidden transition-colors hover:border-primary/40 lg:flex lg:items-stretch"
                             style={softPanelStyle}
                           >
-                            {firstImage && (
-                              <div className="h-48 overflow-hidden">
-                                <img src={firstImage} alt={room.name} className="w-full h-full object-cover" />
+                            {images.length > 0 && (
+                              <div className="relative h-48 lg:h-72 lg:w-72 lg:flex-shrink-0">
+                                <Carousel className="h-full">
+                                  <CarouselContent className="ml-0 h-48 lg:h-72">
+                                    {images.map((img, index) => (
+                                      <CarouselItem key={`${room.id}-${index}`} className="pl-0 h-48 lg:h-72">
+                                        <img src={img} alt={`${room.name} photo ${index + 1}`} className="h-full w-full object-cover" />
+                                      </CarouselItem>
+                                    ))}
+                                  </CarouselContent>
+                                  {images.length > 1 && (
+                                    <>
+                                      <CarouselPrevious className="left-2 right-auto top-1/2 -translate-y-1/2" />
+                                      <CarouselNext className="right-2 left-auto top-1/2 -translate-y-1/2" />
+                                    </>
+                                  )}
+                                </Carousel>
                               </div>
                             )}
-                            <div className="p-4 sm:p-5">
+                            <div className="p-4 sm:p-5 lg:flex-1">
                             <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                               <div className="min-w-0 space-y-3">
                                 <div className="flex flex-wrap items-center gap-2">
