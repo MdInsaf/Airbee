@@ -682,7 +682,7 @@ class RoomCategoriesView(APIView):
           name (required), color, description, display_order
           count (optional): if > 0, create N rooms in this category
           start_number (default 1), room_name_prefix (default = category name)
-          base_price, max_guests (applied to created rooms)
+          base_price, max_adults, max_children (applied to created rooms)
         """
         tenant_id = request.user.tenant_id
         d = request.data
@@ -712,9 +712,14 @@ class RoomCategoriesView(APIView):
         except Exception:
             base_price = 0.0
         try:
-            max_guests = max(1, int(d.get("max_guests") or 2))
+            max_adults = max(1, int(d.get("max_adults") or 2))
         except Exception:
-            max_guests = 2
+            max_adults = 2
+        try:
+            max_children = max(0, int(d.get("max_children") or 0))
+        except Exception:
+            max_children = 0
+        max_guests = max_adults + max_children
 
         category_id = str(uuid.uuid4())
         room_ids = []
@@ -732,10 +737,12 @@ class RoomCategoriesView(APIView):
                     room_name = f"{room_name_prefix} {start_number + i}".strip()
                     cur.execute(
                         """
-                        INSERT INTO rooms (id, tenant_id, name, category_id, max_guests, base_price, status, housekeeping_status)
-                        VALUES (%s, %s, %s, %s, %s, %s, 'available', 'clean')
+                        INSERT INTO rooms (id, tenant_id, name, category_id,
+                                           max_adults, max_children, max_guests, base_price,
+                                           status, housekeeping_status)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'available', 'clean')
                         """,
-                        [room_id, tenant_id, room_name, category_id, max_guests, base_price],
+                        [room_id, tenant_id, room_name, category_id, max_adults, max_children, max_guests, base_price],
                     )
                     room_ids.append(room_id)
         except Exception as exc:

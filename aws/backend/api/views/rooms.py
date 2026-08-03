@@ -69,7 +69,8 @@ def _normalize_room_payload(data, partial=False):
     has_name = "name" in data or not partial
     has_description = "description" in data or not partial
     has_category_id = "category_id" in data or not partial
-    has_max_guests = "max_guests" in data or not partial
+    has_max_adults = "max_adults" in data or not partial
+    has_max_children = "max_children" in data or not partial
     has_base_price = "base_price" in data or not partial
     has_status = "status" in data or not partial
     has_housekeeping_status = "housekeeping_status" in data or not partial
@@ -79,7 +80,8 @@ def _normalize_room_payload(data, partial=False):
         "name": _payload_string(data, "name", partial) if has_name else None,
         "description": (_payload_string(data, "description", partial) or None) if has_description else None,
         "category_id": (_payload_string(data, "category_id", partial) or None) if has_category_id else None,
-        "max_guests": max(1, _safe_int(data.get("max_guests"), 2)) if has_max_guests else None,
+        "max_adults": max(1, _safe_int(data.get("max_adults"), 2)) if has_max_adults else None,
+        "max_children": max(0, _safe_int(data.get("max_children"), 0)) if has_max_children else None,
         "base_price": max(0.0, _safe_float(data.get("base_price"), 0.0)) if has_base_price else None,
         "status": (_payload_string(data, "status", partial) or None) if has_status else None,
         "housekeeping_status": (
@@ -99,7 +101,7 @@ class RoomList(APIView):
             cur.execute(
                 """
                 SELECT r.id, r.name, r.description, r.category_id,
-                       r.max_guests, r.base_price, r.status, r.housekeeping_status,
+                       r.max_guests, r.max_adults, r.max_children, r.base_price, r.status, r.housekeeping_status,
                        r.amenities, r.images, r.ical_feed_token, r.created_at
                 FROM rooms r
                 WHERE r.tenant_id = %s
@@ -126,6 +128,7 @@ class RoomList(APIView):
         start_number = _safe_int(request.data.get("start_number"), 1)
         # When bulk-creating, the supplied "name" acts as the prefix unless name_prefix overrides it.
         prefix = (request.data.get("name_prefix") or d["name"]).strip() if count > 1 else d["name"]
+        max_guests = d["max_adults"] + d["max_children"]
 
         try:
             with connection.cursor() as cur:
@@ -139,8 +142,9 @@ class RoomList(APIView):
                     cur.execute(
                         """
                         INSERT INTO rooms (id, tenant_id, name, description, category_id,
-                                           max_guests, base_price, status, housekeeping_status)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,
+                                           max_adults, max_children, max_guests, base_price,
+                                           status, housekeeping_status)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,
                                 COALESCE(%s,'available')::room_status,
                                 COALESCE(%s,'clean')::housekeeping_status)
                         """,
@@ -150,7 +154,9 @@ class RoomList(APIView):
                             room_name,
                             d["description"],
                             d["category_id"],
-                            d["max_guests"],
+                            d["max_adults"],
+                            d["max_children"],
+                            max_guests,
                             d["base_price"],
                             d["status"],
                             d["housekeeping_status"],
@@ -186,6 +192,13 @@ class RoomDetail(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         images_json = json.dumps(d["images"]) if d["images"] is not None else None
+        # Both fields are submitted together by the admin form; recompute the
+        # combined total only when both are present so it never drifts out of sync.
+        max_guests = (
+            d["max_adults"] + d["max_children"]
+            if d["max_adults"] is not None and d["max_children"] is not None
+            else None
+        )
         try:
             with connection.cursor() as cur:
                 cur.execute(
@@ -194,6 +207,8 @@ class RoomDetail(APIView):
                         name = COALESCE(%s, name),
                         description = COALESCE(%s, description),
                         category_id = COALESCE(%s, category_id),
+                        max_adults = COALESCE(%s, max_adults),
+                        max_children = COALESCE(%s, max_children),
                         max_guests = COALESCE(%s, max_guests),
                         status = COALESCE(%s, status),
                         housekeeping_status = COALESCE(%s, housekeeping_status),
@@ -206,7 +221,9 @@ class RoomDetail(APIView):
                         d["name"] or None,
                         d["description"],
                         d["category_id"],
-                        d["max_guests"],
+                        d["max_adults"],
+                        d["max_children"],
+                        max_guests,
                         d["status"],
                         d["housekeeping_status"],
                         d["base_price"],

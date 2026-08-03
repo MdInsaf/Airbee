@@ -439,7 +439,7 @@ COPILOT_PRODUCT_BRIEF = (
     "list categories, list available rooms for dates, and create a booking. "
     "When the user asks to BOOK a room: gather all required fields conversationally — "
     "guest_name, check_in (YYYY-MM-DD), check_out (YYYY-MM-DD), room category or specific room, "
-    "guests count, optional email and phone — then call create_booking. "
+    "number of adults and children, optional email and phone — then call create_booking. "
     "If a room category is mentioned (e.g. 'deluxe'), use list_available_rooms first to find a "
     "matching available room for those dates. Confirm the rate with the user before booking when feasible. "
     "Be concise and specific."
@@ -481,7 +481,8 @@ COPILOT_TOOLS = [
                 "guest_phone": {"type": "string"},
                 "check_in": {"type": "string", "description": "YYYY-MM-DD"},
                 "check_out": {"type": "string", "description": "YYYY-MM-DD"},
-                "guests": {"type": "integer", "description": "Number of guests, default 1."},
+                "adults": {"type": "integer", "description": "Number of adults, default 1."},
+                "children": {"type": "integer", "description": "Number of children, default 0."},
                 "total_amount": {"type": "number", "description": "If omitted, computed from room base_price * nights."},
                 "notes": {"type": "string"},
             },
@@ -555,7 +556,8 @@ def _tool_create_booking(tenant_id, args):
         "guest_phone": args.get("guest_phone"),
         "check_in": args.get("check_in"),
         "check_out": args.get("check_out"),
-        "guests": args.get("guests") or 1,
+        "adults": args.get("adults") or 1,
+        "children": args.get("children") or 0,
         "total_amount": args.get("total_amount") or 0,
         "notes": args.get("notes"),
         "status": "confirmed",

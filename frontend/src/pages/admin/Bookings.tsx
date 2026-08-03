@@ -52,17 +52,17 @@ const Bookings = () => {
   type BulkRow = {
     guest_name: string; guest_email: string; guest_phone: string;
     room_id: string; check_in: string; check_out: string;
-    guests: number; total_amount: number;
+    adults: number; children: number; total_amount: number;
   };
   const blankBulkRow = (): BulkRow => ({
     guest_name: "", guest_email: "", guest_phone: "",
-    room_id: "", check_in: "", check_out: "", guests: 1, total_amount: 0,
+    room_id: "", check_in: "", check_out: "", adults: 1, children: 0, total_amount: 0,
   });
   const [bulkRows, setBulkRows] = useState<BulkRow[]>([blankBulkRow(), blankBulkRow(), blankBulkRow()]);
 
   const [form, setForm] = useState({
     guest_name: "", guest_email: "", guest_phone: "",
-    room_id: "", check_in: "", check_out: "", guests: 1, total_amount: 0,
+    room_id: "", check_in: "", check_out: "", adults: 1, children: 0, total_amount: 0,
   });
 
   const fetchData = async () => {
@@ -116,12 +116,13 @@ const Bookings = () => {
         room_id: form.room_id,
         check_in: form.check_in,
         check_out: form.check_out,
-        guests: form.guests,
+        adults: form.adults,
+        children: form.children,
         total_amount: form.total_amount,
       });
       toast({ title: "Booking created" });
       setDialogOpen(false);
-      setForm({ guest_name: "", guest_email: "", guest_phone: "", room_id: "", check_in: "", check_out: "", guests: 1, total_amount: 0 });
+      setForm({ guest_name: "", guest_email: "", guest_phone: "", room_id: "", check_in: "", check_out: "", adults: 1, children: 0, total_amount: 0 });
       fetchData();
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -178,7 +179,8 @@ const Bookings = () => {
           room_id: r.room_id,
           check_in: r.check_in,
           check_out: r.check_out,
-          guests: r.guests,
+          adults: r.adults,
+          children: r.children,
           total_amount: r.total_amount,
         })),
       });
@@ -279,10 +281,14 @@ const Bookings = () => {
                   <Input type="date" value={form.check_out} onChange={(e) => setForm(f => ({ ...f, check_out: e.target.value }))} />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label>Guests</Label>
-                  <Input type="number" value={form.guests} onChange={(e) => setForm(f => ({ ...f, guests: parseInt(e.target.value) || 1 }))} />
+                  <Label>Adults</Label>
+                  <Input type="number" min={1} value={form.adults} onChange={(e) => setForm(f => ({ ...f, adults: parseInt(e.target.value) || 1 }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Children</Label>
+                  <Input type="number" min={0} value={form.children} onChange={(e) => setForm(f => ({ ...f, children: parseInt(e.target.value) || 0 }))} />
                 </div>
                 <div className="space-y-2">
                   <Label>Total (₹)</Label>
@@ -315,7 +321,8 @@ const Bookings = () => {
                       <TableHead className="w-44">Room</TableHead>
                       <TableHead className="w-36">Check-in</TableHead>
                       <TableHead className="w-36">Check-out</TableHead>
-                      <TableHead className="w-16">Guests</TableHead>
+                      <TableHead className="w-16">Adults</TableHead>
+                      <TableHead className="w-16">Children</TableHead>
                       <TableHead className="w-28">Total</TableHead>
                       <TableHead className="w-8" />
                     </TableRow>
@@ -334,7 +341,8 @@ const Bookings = () => {
                         </TableCell>
                         <TableCell><Input type="date" value={r.check_in} onChange={e => updateBulkRow(i, { check_in: e.target.value })} className="h-8" /></TableCell>
                         <TableCell><Input type="date" value={r.check_out} onChange={e => updateBulkRow(i, { check_out: e.target.value })} className="h-8" /></TableCell>
-                        <TableCell><Input type="number" min={1} value={r.guests} onChange={e => updateBulkRow(i, { guests: parseInt(e.target.value) || 1 })} className="h-8" /></TableCell>
+                        <TableCell><Input type="number" min={1} value={r.adults} onChange={e => updateBulkRow(i, { adults: parseInt(e.target.value) || 1 })} className="h-8" /></TableCell>
+                        <TableCell><Input type="number" min={0} value={r.children} onChange={e => updateBulkRow(i, { children: parseInt(e.target.value) || 0 })} className="h-8" /></TableCell>
                         <TableCell><Input type="number" value={r.total_amount} onChange={e => updateBulkRow(i, { total_amount: parseFloat(e.target.value) || 0 })} className="h-8" /></TableCell>
                         <TableCell>
                           {bulkRows.length > 1 && (
