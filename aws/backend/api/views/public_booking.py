@@ -213,7 +213,8 @@ def _calculate_pricing(property_data, room, guests, nights):
 
 def _fetch_rooms(tenant_id, check_in=None, check_out=None, guests=1):
     query = """
-        SELECT r.id, r.name, r.description, r.max_guests, r.base_price, r.status,
+        SELECT r.id, r.name, r.description, r.max_guests, r.max_adults, r.max_children,
+               r.base_price, r.status,
                r.amenities, r.images, r.minimum_stay, r.base_occupancy, r.extra_guest_fee,
                r.check_in_time, r.check_out_time, r.cancellation_policy,
                rc.name AS category_name
@@ -250,7 +251,9 @@ def _fetch_rooms(tenant_id, check_in=None, check_out=None, guests=1):
 def _build_property_payload(property_data, request):
     check_in_raw = request.GET.get("check_in")
     check_out_raw = request.GET.get("check_out")
-    guests = max(1, _safe_int(request.GET.get("guests"), 1))
+    adults = max(1, _safe_int(request.GET.get("adults"), 1))
+    children = max(0, _safe_int(request.GET.get("children"), 0))
+    guests = adults + children
 
     check_in = _parse_date(check_in_raw) if check_in_raw else None
     check_out = _parse_date(check_out_raw) if check_out_raw else None
@@ -281,6 +284,8 @@ def _build_property_payload(property_data, request):
             "search": {
                 "check_in": check_in.isoformat() if check_in else None,
                 "check_out": check_out.isoformat() if check_out else None,
+                "adults": adults,
+                "children": children,
                 "guests": guests,
                 "nights": nights,
             },
@@ -295,7 +300,9 @@ def _create_booking_once(property_data, request):
     guest_email = (payload.get("guest_email") or "").strip()
     guest_phone = (payload.get("guest_phone") or "").strip()
     notes = (payload.get("notes") or "").strip()
-    guests = max(1, _safe_int(payload.get("guests"), 1))
+    adults = max(1, _safe_int(payload.get("adults"), 1))
+    children = max(0, _safe_int(payload.get("children"), 0))
+    guests = adults + children
     check_in = _parse_date(payload.get("check_in"))
     check_out = _parse_date(payload.get("check_out"))
 
@@ -314,7 +321,8 @@ def _create_booking_once(property_data, request):
     with transaction.atomic(), connection.cursor() as cur:
         cur.execute(
             """
-            SELECT id, tenant_id, name, description, max_guests, base_price, status,
+            SELECT id, tenant_id, name, description, max_guests, max_adults, max_children,
+                   base_price, status,
                    minimum_stay, base_occupancy, extra_guest_fee,
                    check_in_time, check_out_time, cancellation_policy
             FROM rooms
@@ -335,9 +343,14 @@ def _create_booking_once(property_data, request):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if guests > _safe_int(room.get("max_guests"), 1):
+        if adults > _safe_int(room.get("max_adults"), 1):
             return Response(
-                {"error": "Selected room does not support that many guests"},
+                {"error": "Selected room does not support that many adults"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if children > _safe_int(room.get("max_children"), 0):
+            return Response(
+                {"error": "Selected room does not support that many children"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -374,17 +387,17 @@ def _create_booking_once(property_data, request):
             """
             INSERT INTO bookings (
                 id, tenant_id, room_id, guest_name, guest_email, guest_phone,
-                check_in, check_out, guests, total_amount, base_amount,
+                check_in, check_out, guests, adults, children, total_amount, base_amount,
                 tax_amount, service_charge, status, payment_status, notes, booking_source
             )
             VALUES (
                 %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, 'pending'::booking_status, 'unpaid'::payment_status, %s,
                 COALESCE(%s, 'online')
             )
             RETURNING id, guest_name, guest_email, guest_phone, check_in, check_out,
-                      guests, total_amount, base_amount, tax_amount, service_charge,
+                      guests, adults, children, total_amount, base_amount, tax_amount, service_charge,
                       status, payment_status, notes, created_at
             """,
             [
@@ -397,6 +410,8 @@ def _create_booking_once(property_data, request):
                 check_in,
                 check_out,
                 guests,
+                adults,
+                children,
                 pricing["total_amount"],
                 pricing["base_amount"],
                 pricing["tax_amount"],

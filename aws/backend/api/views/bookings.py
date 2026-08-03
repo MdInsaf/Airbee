@@ -95,7 +95,9 @@ class BookingList(APIView):
         guest_phone = (d.get("guest_phone") or "").strip() or None
         check_in = _parse_date(d.get("check_in"))
         check_out = _parse_date(d.get("check_out"))
-        guests = max(1, _safe_int(d.get("guests"), 1))
+        adults = max(1, _safe_int(d.get("adults"), 1))
+        children = max(0, _safe_int(d.get("children"), 0))
+        guests = adults + children
         booking_status = str(d.get("status") or "pending").strip()
         payment_status = str(d.get("payment_status") or "unpaid").strip()
 
@@ -119,7 +121,7 @@ class BookingList(APIView):
         with transaction.atomic(), connection.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, max_guests, base_price, status
+                SELECT id, max_adults, max_children, base_price, status
                 FROM rooms
                 WHERE id = %s AND tenant_id = %s
                 FOR UPDATE
@@ -129,11 +131,13 @@ class BookingList(APIView):
             room = cur.fetchone()
             if not room:
                 return Response({"error": "Room not found"}, status=status.HTTP_404_NOT_FOUND)
-            _, max_guests, base_price, room_status = room
+            _, max_adults, max_children, base_price, room_status = room
             if room_status != "available":
                 return Response({"error": "Room is not available for booking"}, status=status.HTTP_400_BAD_REQUEST)
-            if guests > int(max_guests or 1):
-                return Response({"error": "Selected room does not support that many guests"}, status=status.HTTP_400_BAD_REQUEST)
+            if adults > int(max_adults or 1):
+                return Response({"error": "Selected room does not support that many adults"}, status=status.HTTP_400_BAD_REQUEST)
+            if children > int(max_children or 0):
+                return Response({"error": "Selected room does not support that many children"}, status=status.HTTP_400_BAD_REQUEST)
 
             if guest_id:
                 cur.execute(
@@ -173,21 +177,21 @@ class BookingList(APIView):
                 INSERT INTO bookings (
                     id, tenant_id, room_id, guest_id,
                     guest_name, guest_email, guest_phone,
-                    check_in, check_out, guests,
+                    check_in, check_out, guests, adults, children,
                     total_amount, base_amount,
                     status, payment_status, notes, booking_source
                 )
                 VALUES (
                     %s,%s,%s,%s,
                     %s,%s,%s,
-                    %s,%s,COALESCE(%s,1),
+                    %s,%s,COALESCE(%s,1),%s,%s,
                     COALESCE(%s,0), COALESCE(%s,0),
                     COALESCE(%s,'pending')::booking_status,
                     COALESCE(%s,'unpaid')::payment_status,
                     %s, COALESCE(%s,'direct')
                 )
                 RETURNING id, tenant_id, room_id, guest_id, guest_name, guest_email, guest_phone,
-                          check_in, check_out, guests, total_amount, base_amount, tax_amount,
+                          check_in, check_out, guests, adults, children, total_amount, base_amount, tax_amount,
                           service_charge, status, payment_status, payment_method, amount_paid,
                           notes, created_at, updated_at
                 """,
@@ -195,7 +199,7 @@ class BookingList(APIView):
                     booking_id, tenant_id,
                     room_id, guest_id,
                     guest_name, guest_email, guest_phone,
-                    check_in, check_out, guests,
+                    check_in, check_out, guests, adults, children,
                     total_amount, total_amount,
                     booking_status, payment_status,
                     d.get("notes"),
@@ -220,27 +224,29 @@ class BookingDetail(APIView):
         with transaction.atomic(), connection.cursor() as cur:
             if new_room_id:
                 cur.execute(
-                    "SELECT room_id, check_in, check_out, status, guests FROM bookings WHERE id = %s AND tenant_id = %s FOR UPDATE",
+                    "SELECT room_id, check_in, check_out, status, adults, children FROM bookings WHERE id = %s AND tenant_id = %s FOR UPDATE",
                     [booking_id, tenant_id],
                 )
                 current = cur.fetchone()
                 if not current:
                     return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
-                cur_room_id, cur_check_in, cur_check_out, cur_status, cur_guests = current
+                cur_room_id, cur_check_in, cur_check_out, cur_status, cur_adults, cur_children = current
 
                 if str(cur_room_id) != new_room_id:
                     cur.execute(
-                        "SELECT max_guests, status FROM rooms WHERE id = %s AND tenant_id = %s FOR UPDATE",
+                        "SELECT max_adults, max_children, status FROM rooms WHERE id = %s AND tenant_id = %s FOR UPDATE",
                         [new_room_id, tenant_id],
                     )
                     target = cur.fetchone()
                     if not target:
                         return Response({"error": "Target room not found"}, status=status.HTTP_404_NOT_FOUND)
-                    target_max, target_status = target
+                    target_max_adults, target_max_children, target_status = target
                     if target_status != "available":
                         return Response({"error": "Target room is not available"}, status=status.HTTP_400_BAD_REQUEST)
-                    if int(cur_guests or 1) > int(target_max or 1):
-                        return Response({"error": "Target room cannot fit this many guests"}, status=status.HTTP_400_BAD_REQUEST)
+                    if int(cur_adults or 1) > int(target_max_adults or 1):
+                        return Response({"error": "Target room cannot fit this many adults"}, status=status.HTTP_400_BAD_REQUEST)
+                    if int(cur_children or 0) > int(target_max_children or 0):
+                        return Response({"error": "Target room cannot fit this many children"}, status=status.HTTP_400_BAD_REQUEST)
 
                     if cur_status in ("pending", "confirmed"):
                         cur.execute(
@@ -339,7 +345,9 @@ def _create_one_booking(cur, tenant_id, item):
     guest_phone = (item.get("guest_phone") or "").strip() or None
     check_in = _parse_date(item.get("check_in"))
     check_out = _parse_date(item.get("check_out"))
-    guests = max(1, _safe_int(item.get("guests"), 1))
+    adults = max(1, _safe_int(item.get("adults"), 1))
+    children = max(0, _safe_int(item.get("children"), 0))
+    guests = adults + children
     booking_status = str(item.get("status") or "pending").strip()
     payment_status = str(item.get("payment_status") or "unpaid").strip()
     booking_source = str(item.get("booking_source") or "direct").strip()
@@ -360,17 +368,19 @@ def _create_one_booking(cur, tenant_id, item):
         return 400, {"error": "Invalid payment status"}
 
     cur.execute(
-        "SELECT id, max_guests, base_price, status FROM rooms WHERE id = %s AND tenant_id = %s FOR UPDATE",
+        "SELECT id, max_adults, max_children, base_price, status FROM rooms WHERE id = %s AND tenant_id = %s FOR UPDATE",
         [room_id, tenant_id],
     )
     room = cur.fetchone()
     if not room:
         return 404, {"error": f"Room {room_id} not found"}
-    _, max_guests, base_price, room_status = room
+    _, max_adults, max_children, base_price, room_status = room
     if room_status != "available":
         return 400, {"error": f"Room {room_id} is not available for booking"}
-    if guests > int(max_guests or 1):
-        return 400, {"error": f"Room {room_id} does not support {guests} guests"}
+    if adults > int(max_adults or 1):
+        return 400, {"error": f"Room {room_id} does not support {adults} adults"}
+    if children > int(max_children or 0):
+        return 400, {"error": f"Room {room_id} does not support {children} children"}
 
     if booking_status in {"pending", "confirmed"}:
         cur.execute(
@@ -397,28 +407,28 @@ def _create_one_booking(cur, tenant_id, item):
         INSERT INTO bookings (
             id, tenant_id, room_id, guest_id,
             guest_name, guest_email, guest_phone,
-            check_in, check_out, guests,
+            check_in, check_out, guests, adults, children,
             total_amount, base_amount,
             status, payment_status, notes, booking_source
         )
         VALUES (
             %s,%s,%s,%s,
             %s,%s,%s,
-            %s,%s,COALESCE(%s,1),
+            %s,%s,COALESCE(%s,1),%s,%s,
             COALESCE(%s,0), COALESCE(%s,0),
             COALESCE(%s,'pending')::booking_status,
             COALESCE(%s,'unpaid')::payment_status,
             %s, COALESCE(%s,'direct')
         )
         RETURNING id, tenant_id, room_id, guest_id, guest_name, guest_email, guest_phone,
-                  check_in, check_out, guests, total_amount, base_amount, tax_amount,
+                  check_in, check_out, guests, adults, children, total_amount, base_amount, tax_amount,
                   service_charge, status, payment_status, payment_method, amount_paid,
                   notes, created_at, updated_at
         """,
         [
             booking_id, tenant_id, room_id, guest_id,
             guest_name, guest_email, guest_phone,
-            check_in, check_out, guests,
+            check_in, check_out, guests, adults, children,
             total_amount, total_amount,
             booking_status, payment_status,
             item.get("notes"), booking_source,

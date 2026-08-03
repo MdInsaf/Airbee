@@ -19,6 +19,8 @@ interface Room {
   name: string;
   description: string | null;
   max_guests: number;
+  max_adults: number;
+  max_children: number;
   base_price: number;
   status: string;
   housekeeping_status: string;
@@ -44,7 +46,7 @@ const Rooms = () => {
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
 
   const [form, setForm] = useState({
-    name: "", description: "", max_guests: 2, base_price: 0,
+    name: "", description: "", max_adults: 2, max_children: 0, base_price: 0,
     status: "available" as string, category_id: "" as string,
     count: 1, start_number: 1, name_prefix: "",
   });
@@ -61,7 +63,7 @@ const Rooms = () => {
   const [catForm, setCatForm] = useState({
     name: "", color: "#3B82F6", description: "",
     count: 0, start_number: 101, room_name_prefix: "",
-    base_price: 0, max_guests: 2,
+    base_price: 0, max_adults: 2, max_children: 0,
   });
 
   const fetchData = async () => {
@@ -83,7 +85,7 @@ const Rooms = () => {
   useEffect(() => { fetchData(); }, [tenantId]);
 
   const resetForm = () => {
-    setForm({ name: "", description: "", max_guests: 2, base_price: 0, status: "available", category_id: "", count: 1, start_number: 1, name_prefix: "" });
+    setForm({ name: "", description: "", max_adults: 2, max_children: 0, base_price: 0, status: "available", category_id: "", count: 1, start_number: 1, name_prefix: "" });
     setEditingRoom(null);
   };
 
@@ -93,7 +95,8 @@ const Rooms = () => {
     const payload: Record<string, any> = {
       name: form.name,
       description: form.description || null,
-      max_guests: form.max_guests,
+      max_adults: form.max_adults,
+      max_children: form.max_children,
       base_price: form.base_price,
       status: form.status,
       category_id: form.category_id || null,
@@ -132,14 +135,15 @@ const Rooms = () => {
         start_number: catForm.start_number,
         room_name_prefix: catForm.room_name_prefix || catForm.name,
         base_price: catForm.base_price,
-        max_guests: catForm.max_guests,
+        max_adults: catForm.max_adults,
+        max_children: catForm.max_children,
       });
       toast({
         title: "Category created",
         description: res.rooms_count > 0 ? `Provisioned ${res.rooms_count} rooms` : undefined,
       });
       setCatOpen(false);
-      setCatForm({ name: "", color: "#3B82F6", description: "", count: 0, start_number: 101, room_name_prefix: "", base_price: 0, max_guests: 2 });
+      setCatForm({ name: "", color: "#3B82F6", description: "", count: 0, start_number: 101, room_name_prefix: "", base_price: 0, max_adults: 2, max_children: 0 });
       fetchData();
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -183,7 +187,8 @@ const Rooms = () => {
     setForm({
       name: room.name,
       description: room.description || "",
-      max_guests: room.max_guests,
+      max_adults: room.max_adults,
+      max_children: room.max_children,
       base_price: Number(room.base_price),
       status: room.status,
       category_id: room.category_id || "",
@@ -293,10 +298,14 @@ const Rooms = () => {
                 <Label>Description</Label>
                 <Textarea value={form.description} onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))} />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label>Max Guests</Label>
-                  <Input type="number" value={form.max_guests} onChange={(e) => setForm(f => ({ ...f, max_guests: parseInt(e.target.value) || 2 }))} />
+                  <Label>Max Adults</Label>
+                  <Input type="number" min={1} value={form.max_adults} onChange={(e) => setForm(f => ({ ...f, max_adults: parseInt(e.target.value) || 1 }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Max Children</Label>
+                  <Input type="number" min={0} value={form.max_children} onChange={(e) => setForm(f => ({ ...f, max_children: parseInt(e.target.value) || 0 }))} />
                 </div>
                 <div className="space-y-2">
                   <Label>Base Price (₹)</Label>
@@ -404,8 +413,12 @@ const Rooms = () => {
                   <Input type="number" value={catForm.base_price} onChange={e => setCatForm(f => ({ ...f, base_price: parseFloat(e.target.value) || 0 }))} disabled={catForm.count === 0} />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Max guests</Label>
-                  <Input type="number" min={1} value={catForm.max_guests} onChange={e => setCatForm(f => ({ ...f, max_guests: parseInt(e.target.value) || 2 }))} disabled={catForm.count === 0} />
+                  <Label className="text-xs">Max adults</Label>
+                  <Input type="number" min={1} value={catForm.max_adults} onChange={e => setCatForm(f => ({ ...f, max_adults: parseInt(e.target.value) || 1 }))} disabled={catForm.count === 0} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Max children</Label>
+                  <Input type="number" min={0} value={catForm.max_children} onChange={e => setCatForm(f => ({ ...f, max_children: parseInt(e.target.value) || 0 }))} disabled={catForm.count === 0} />
                 </div>
               </div>
               {catForm.count > 0 && (
@@ -534,7 +547,10 @@ const Rooms = () => {
                 <div className="flex items-center justify-between text-sm">
                   <div className="flex items-center gap-1 text-muted-foreground">
                     <Users className="w-3.5 h-3.5" />
-                    <span>{room.max_guests} guests</span>
+                    <span>
+                      {room.max_adults} adult{room.max_adults === 1 ? "" : "s"}
+                      {room.max_children > 0 && `, ${room.max_children} child${room.max_children === 1 ? "" : "ren"}`}
+                    </span>
                   </div>
                   <span className="font-bold text-lg">{formatCurrency(room.base_price)}</span>
                 </div>

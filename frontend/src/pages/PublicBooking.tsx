@@ -59,6 +59,8 @@ type Room = {
   name: string;
   description: string | null;
   max_guests: number;
+  max_adults: number;
+  max_children: number;
   base_price: number;
   amenities: string[] | string | null;
   images: string[] | string | null;
@@ -78,6 +80,8 @@ type PropertyResponse = {
   search: {
     check_in: string | null;
     check_out: string | null;
+    adults: number;
+    children: number;
     guests: number;
     nights: number;
   };
@@ -126,7 +130,8 @@ function defaultSearchState() {
   return {
     check_in: formatDate(checkIn),
     check_out: formatDate(checkOut),
-    guests: 2,
+    adults: 2,
+    children: 0,
   };
 }
 
@@ -233,7 +238,8 @@ const PublicBooking = () => {
       if (withSearch) {
         params.set("check_in", search.check_in);
         params.set("check_out", search.check_out);
-        params.set("guests", String(search.guests));
+        params.set("adults", String(search.adults));
+        params.set("children", String(search.children));
       }
       const query = params.toString();
       const data = await api.publicGet<PropertyResponse>(
@@ -261,7 +267,8 @@ const PublicBooking = () => {
       if (withSearch) {
         params.set("check_in", search.check_in);
         params.set("check_out", search.check_out);
-        params.set("guests", String(search.guests));
+        params.set("adults", String(search.adults));
+        params.set("children", String(search.children));
       }
       const query = params.toString();
       const data = await api.publicGet<PropertyResponse>(`/public/site${query ? `?${query}` : ""}`);
@@ -435,8 +442,12 @@ const PublicBooking = () => {
       toast({ title: "Valid email required", description: "Please enter a valid email address.", variant: "destructive" });
       return;
     }
-    if (search.guests > selectedRoom.max_guests) {
-      toast({ title: "Too many guests", description: `This room fits up to ${selectedRoom.max_guests} guest(s). Reduce the guest count and search again.`, variant: "destructive" });
+    if (search.adults > selectedRoom.max_adults) {
+      toast({ title: "Too many adults", description: `This room fits up to ${selectedRoom.max_adults} adult(s). Reduce the adult count and search again.`, variant: "destructive" });
+      return;
+    }
+    if (search.children > selectedRoom.max_children) {
+      toast({ title: "Too many children", description: `This room fits up to ${selectedRoom.max_children} child(ren). Reduce the child count and search again.`, variant: "destructive" });
       return;
     }
     if (nights > 0 && nights < (selectedRoom.minimum_stay || 1)) {
@@ -458,7 +469,8 @@ const PublicBooking = () => {
           guest_email: bookingForm.guest_email,
           guest_phone: bookingForm.guest_phone,
           notes: bookingForm.notes,
-          guests: search.guests,
+          adults: search.adults,
+          children: search.children,
           check_in: search.check_in,
           check_out: search.check_out,
         }
@@ -548,7 +560,7 @@ const PublicBooking = () => {
                     </div>
                     <div className="rounded-2xl border p-4" style={heroPanelStyle}>
                       <p className="text-[11px] uppercase tracking-[0.2em]" style={heroMutedStyle}>Guest count</p>
-                      <p className="mt-2 text-2xl font-semibold" style={heroTextStyle}>{search.guests}</p>
+                      <p className="mt-2 text-2xl font-semibold" style={heroTextStyle}>{search.adults + search.children}</p>
                       <p className="text-xs" style={heroMutedStyle}>Capacity filter applied to each room</p>
                     </div>
                   </div>
@@ -634,17 +646,35 @@ const PublicBooking = () => {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="guests" style={mutedStyle}>Guests</Label>
+                <Label htmlFor="adults" style={mutedStyle}>Adults</Label>
                 <Input
-                  id="guests"
+                  id="adults"
                   type="number"
                   min={1}
                   max={10}
-                  value={search.guests}
+                  value={search.adults}
                   onChange={(event) =>
                     setSearch((prev) => ({
                       ...prev,
-                      guests: Math.max(1, parseInt(event.target.value || "1", 10)),
+                      adults: Math.max(1, parseInt(event.target.value || "1", 10)),
+                    }))
+                  }
+                  style={inputStyle}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="children" style={mutedStyle}>Children</Label>
+                <Input
+                  id="children"
+                  type="number"
+                  min={0}
+                  max={10}
+                  value={search.children}
+                  onChange={(event) =>
+                    setSearch((prev) => ({
+                      ...prev,
+                      children: Math.max(0, parseInt(event.target.value || "0", 10)),
                     }))
                   }
                   style={inputStyle}
@@ -678,8 +708,11 @@ const PublicBooking = () => {
                         const amenities = normalizeStringArray(room.amenities);
                         const images = normalizeStringArray(room.images);
                         const minStayViolation = nights > 0 && nights < (room.minimum_stay || 1);
-                        const guestViolation = search.guests > room.max_guests;
+                        const guestViolation = search.adults > room.max_adults || search.children > room.max_children;
                         const canReserve = !minStayViolation && !guestViolation;
+                        const capacityLabel = room.max_children > 0
+                          ? `${room.max_adults} adult(s), ${room.max_children} child(ren)`
+                          : `${room.max_adults} adult(s)`;
 
                         return (
                           <article
@@ -716,7 +749,7 @@ const PublicBooking = () => {
                                     <Badge variant="destructive" className="text-xs">Min {room.minimum_stay} nights required</Badge>
                                   )}
                                   {guestViolation && (
-                                    <Badge variant="destructive" className="text-xs">Max {room.max_guests} guests</Badge>
+                                    <Badge variant="destructive" className="text-xs">Max {capacityLabel}</Badge>
                                   )}
                                 </div>
                                 {room.description ? (
@@ -725,7 +758,7 @@ const PublicBooking = () => {
                                   </p>
                                 ) : null}
                                 <div className="flex flex-wrap gap-2 text-xs">
-                                  {[`Up to ${room.max_guests} guest(s)`, `Min stay ${room.minimum_stay || 1} night(s)`, `Check-in ${room.check_in_time || "14:00"}`, `Check-out ${room.check_out_time || "11:00"}`].map((label) => (
+                                  {[`Up to ${capacityLabel}`, `Min stay ${room.minimum_stay || 1} night(s)`, `Check-in ${room.check_in_time || "14:00"}`, `Check-out ${room.check_out_time || "11:00"}`].map((label) => (
                                     <span key={label} className="rounded-full border px-3 py-1" style={{ ...mutedStyle, borderColor: isDark ? "rgba(255,255,255,0.1)" : undefined }}>
                                       {label}
                                     </span>
@@ -780,7 +813,7 @@ const PublicBooking = () => {
                                   style={canReserve ? primaryButtonStyle : {}}
                                 >
                                   {!canReserve
-                                    ? (minStayViolation ? `Min ${room.minimum_stay} nights required` : `Max ${room.max_guests} guests`)
+                                    ? (minStayViolation ? `Min ${room.minimum_stay} nights required` : `Max ${capacityLabel}`)
                                     : ctaLabel}
                                   {canReserve && <ArrowRight className="ml-2 h-4 w-4" />}
                                 </Button>
@@ -831,7 +864,10 @@ const PublicBooking = () => {
                     ) : null}
                     <div className="flex items-center gap-3" style={mutedStyle}>
                       <Users className="h-4 w-4 shrink-0" style={accentIconStyle} />
-                      <span>{search.guests} guest(s) selected</span>
+                      <span>
+                        {search.adults} adult(s)
+                        {search.children > 0 && `, ${search.children} child(ren)`} selected
+                      </span>
                     </div>
                   </CardContent>
                 </Card>
