@@ -90,7 +90,7 @@ def _get_property_by_slug(slug):
         cur.execute(
             """
             SELECT id, name, slug, contact_email, contact_phone, address, currency, timezone,
-                   logo_url, subdomain, domain, primary_hostname, booking_theme,
+                   logo_url, hero_image_url, subdomain, domain, primary_hostname, booking_theme,
                    settings->'booking_site' AS booking_site, booking_site_enabled,
                    gst_enabled, gst_percentage, service_charge_enabled, service_charge_percentage
             FROM tenants
@@ -118,7 +118,7 @@ def _get_property_by_host(host):
         cur.execute(
             """
             SELECT id, name, slug, contact_email, contact_phone, address, currency, timezone,
-                   logo_url, subdomain, domain, primary_hostname, booking_theme,
+                   logo_url, hero_image_url, subdomain, domain, primary_hostname, booking_theme,
                    settings->'booking_site' AS booking_site, booking_site_enabled,
                    gst_enabled, gst_percentage, service_charge_enabled, service_charge_percentage,
                    CASE

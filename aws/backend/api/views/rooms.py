@@ -1,3 +1,4 @@
+import json
 import uuid
 from decimal import Decimal
 from django.db import connection
@@ -10,6 +11,7 @@ from api.tenant_isolation import set_tenant_context
 
 ALLOWED_ROOM_STATUS = {"available", "maintenance", "unavailable"}
 ALLOWED_HOUSEKEEPING_STATUS = {"clean", "dirty", "in_progress", "inspecting"}
+MAX_ROOM_IMAGES = 12
 
 
 def _serialize(row, columns):
@@ -44,6 +46,25 @@ def _payload_string(data, key, partial=False):
     return (data.get(key) or "").strip()
 
 
+IMAGES_INVALID = object()
+
+
+def _normalize_images(value):
+    if not isinstance(value, list):
+        return IMAGES_INVALID
+    urls = []
+    for item in value:
+        if not isinstance(item, str):
+            return IMAGES_INVALID
+        url = item.strip()
+        if not url:
+            continue
+        if len(url) > 2048 or not url.startswith(("https://", "http://")):
+            return IMAGES_INVALID
+        urls.append(url)
+    return urls[:MAX_ROOM_IMAGES]
+
+
 def _normalize_room_payload(data, partial=False):
     has_name = "name" in data or not partial
     has_description = "description" in data or not partial
@@ -52,6 +73,7 @@ def _normalize_room_payload(data, partial=False):
     has_base_price = "base_price" in data or not partial
     has_status = "status" in data or not partial
     has_housekeeping_status = "housekeeping_status" in data or not partial
+    has_images = "images" in data
 
     return {
         "name": _payload_string(data, "name", partial) if has_name else None,
@@ -63,6 +85,7 @@ def _normalize_room_payload(data, partial=False):
         "housekeeping_status": (
             _payload_string(data, "housekeeping_status", partial) or None
         ) if has_housekeeping_status else None,
+        "images": _normalize_images(data.get("images")) if has_images else None,
     }
 
 
@@ -118,8 +141,8 @@ class RoomList(APIView):
                         INSERT INTO rooms (id, tenant_id, name, description, category_id,
                                            max_guests, base_price, status, housekeeping_status)
                         VALUES (%s,%s,%s,%s,%s,%s,%s,
-                                COALESCE(%s,'available'),
-                                COALESCE(%s,'clean'))
+                                COALESCE(%s,'available')::room_status,
+                                COALESCE(%s,'clean')::housekeeping_status)
                         """,
                         [
                             room_id,
@@ -157,6 +180,12 @@ class RoomDetail(APIView):
             return Response({"error": "Invalid room status"}, status=status.HTTP_400_BAD_REQUEST)
         if d["housekeeping_status"] and d["housekeeping_status"] not in ALLOWED_HOUSEKEEPING_STATUS:
             return Response({"error": "Invalid housekeeping status"}, status=status.HTTP_400_BAD_REQUEST)
+        if d["images"] is IMAGES_INVALID:
+            return Response(
+                {"error": "images must be a list of http(s) URLs"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        images_json = json.dumps(d["images"]) if d["images"] is not None else None
         try:
             with connection.cursor() as cur:
                 cur.execute(
@@ -169,6 +198,7 @@ class RoomDetail(APIView):
                         status = COALESCE(%s, status),
                         housekeeping_status = COALESCE(%s, housekeeping_status),
                         base_price = COALESCE(%s, base_price),
+                        images = COALESCE(%s::jsonb, images),
                         updated_at = NOW()
                     WHERE id = %s AND tenant_id = %s
                     """,
@@ -180,6 +210,7 @@ class RoomDetail(APIView):
                         d["status"],
                         d["housekeeping_status"],
                         d["base_price"],
+                        images_json,
                         room_id,
                         tenant_id,
                     ],

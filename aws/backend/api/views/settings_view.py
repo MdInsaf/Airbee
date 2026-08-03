@@ -255,7 +255,7 @@ def _load_tenant(cur, tenant_id):
                settings, booking_theme, domain_config,
                gst_enabled, gst_percentage, gst_number, service_charge_enabled,
                service_charge_percentage, email_settings, contact_email, contact_phone,
-               address, currency, timezone, logo_url, created_at, updated_at
+               address, currency, timezone, logo_url, hero_image_url, created_at, updated_at
         FROM tenants
         WHERE id = %s
         """,
@@ -443,6 +443,7 @@ class SettingsView(APIView):
                     settings = %s::jsonb,
                     booking_theme = %s::jsonb,
                     logo_url = COALESCE(%s, logo_url),
+                    hero_image_url = COALESCE(%s, hero_image_url),
                     contact_email = COALESCE(%s, contact_email),
                     contact_phone = COALESCE(%s, contact_phone),
                     address = COALESCE(%s, address),
@@ -470,6 +471,7 @@ class SettingsView(APIView):
                     json.dumps(settings_payload),
                     json.dumps(booking_theme),
                     d.get("logo_url"),
+                    d.get("hero_image_url"),
                     d.get("contact_email"),
                     d.get("contact_phone"),
                     d.get("address"),

@@ -6,6 +6,7 @@ param(
     [string]$BookingLambdaName = "airbee-booking-api",
     [string]$PlatformBucketName,
     [string]$BookingBucketName,
+    [string]$RoomMediaBucketName,
     [string[]]$PlatformHosts = @("app.airbee.com", "admin.airbee.com"),
     [string]$PublicBaseDomain = "book.airbee.com",
     [string[]]$PlatformAliases = @(),
@@ -328,6 +329,56 @@ function Ensure-Bucket {
         --bucket $BucketName `
         --ownership-controls 'Rules=[{ObjectOwnership=BucketOwnerEnforced}]' `
         --region $Region | Out-Null
+}
+
+function Ensure-BucketCors {
+    param(
+        [string]$BucketName,
+        [string[]]$AllowedOrigins,
+        [string[]]$AllowedMethods
+    )
+
+    $config = [ordered]@{
+        CORSRules = @(
+            [ordered]@{
+                AllowedOrigins = @($AllowedOrigins)
+                AllowedMethods = @($AllowedMethods)
+                AllowedHeaders = @("*")
+                ExposeHeaders = @("ETag")
+                MaxAgeSeconds = 3000
+            }
+        )
+    }
+    $configPath = Join-Path $env:TEMP ("{0}-cors.json" -f $BucketName)
+    ($config | ConvertTo-Json -Depth 10) | Out-File -FilePath $configPath -Encoding ascii
+    python -m awscli s3api put-bucket-cors --bucket $BucketName --cors-configuration "file://$configPath" --region $Region | Out-Null
+}
+
+function New-RoomMediaBehavior {
+    param(
+        [string]$PathPattern,
+        [string]$TargetOriginId
+    )
+
+    return [ordered]@{
+        PathPattern = $PathPattern
+        TargetOriginId = $TargetOriginId
+        TrustedSigners = [ordered]@{ Enabled = $false; Quantity = 0 }
+        TrustedKeyGroups = [ordered]@{ Enabled = $false; Quantity = 0 }
+        ViewerProtocolPolicy = "redirect-to-https"
+        AllowedMethods = [ordered]@{
+            Quantity = 2
+            Items = @("HEAD", "GET")
+            CachedMethods = [ordered]@{ Quantity = 2; Items = @("HEAD", "GET") }
+        }
+        SmoothStreaming = $false
+        Compress = $true
+        LambdaFunctionAssociations = [ordered]@{ Quantity = 0; Items = @() }
+        FunctionAssociations = [ordered]@{ Quantity = 0; Items = @() }
+        FieldLevelEncryptionId = ""
+        CachePolicyId = $ManagedCachingOptimized
+        GrpcConfig = [ordered]@{ Enabled = $false }
+    }
 }
 
 function Ensure-S3OriginAccessControl {
@@ -802,7 +853,9 @@ function Update-LambdaDnsEnvironment {
         [string[]]$FunctionNames,
         [string]$PublicBaseDomainValue,
         [string]$PublicCnameTargetValue,
-        [string]$PlatformHostsValue
+        [string]$PlatformHostsValue,
+        [string]$RoomMediaBucketValue,
+        [string]$RoomMediaPublicBaseUrlValue
     )
 
     foreach ($functionName in ($FunctionNames | Select-Object -Unique)) {
@@ -821,6 +874,8 @@ function Update-LambdaDnsEnvironment {
         if ($PublicBaseDomainValue) { $vars["PUBLIC_BASE_DOMAIN"] = $PublicBaseDomainValue }
         if ($PublicCnameTargetValue) { $vars["PUBLIC_CNAME_TARGET"] = $PublicCnameTargetValue }
         if ($PlatformHostsValue) { $vars["PLATFORM_HOSTS"] = $PlatformHostsValue }
+        if ($RoomMediaBucketValue) { $vars["ROOM_MEDIA_BUCKET"] = $RoomMediaBucketValue }
+        if ($RoomMediaPublicBaseUrlValue) { $vars["ROOM_MEDIA_PUBLIC_BASE_URL"] = $RoomMediaPublicBaseUrlValue }
 
         $envPath = Join-Path $env:TEMP ("{0}-dns-env.json" -f $functionName)
         (@{ Variables = $vars } | ConvertTo-Json -Compress) | Out-File -FilePath $envPath -Encoding ascii
@@ -844,6 +899,9 @@ if (-not $PlatformBucketName) {
 }
 if (-not $BookingBucketName) {
     $BookingBucketName = ("{0}-booking-site-{1}-{2}" -f $Project, $accountId, $Region).ToLowerInvariant()
+}
+if (-not $RoomMediaBucketName) {
+    $RoomMediaBucketName = ("{0}-room-media-{1}-{2}" -f $Project, $accountId, $Region).ToLowerInvariant()
 }
 
 $platformLambdaConfig = Get-LambdaConfiguration -FunctionName $PlatformLambdaName
@@ -891,6 +949,10 @@ Build-FrontendArtifact `
 
 Ensure-Bucket -BucketName $PlatformBucketName
 Ensure-Bucket -BucketName $BookingBucketName
+Ensure-Bucket -BucketName $RoomMediaBucketName
+Ensure-BucketCors -BucketName $RoomMediaBucketName `
+    -AllowedOrigins @("https://dashboard.ascendersservices.in", "https://app.airbee.com", "http://localhost:8080") `
+    -AllowedMethods @("POST", "PUT", "GET")
 
 $s3OacId = Ensure-S3OriginAccessControl -Name "$Project-s3-origin-access"
 $forwardHostFunctionArn = Ensure-CloudFrontFunction -Name "$Project-forward-host" -CodePath $ForwardHostFunctionPath
@@ -914,10 +976,12 @@ $platformDistribution = Ensure-Distribution `
 
 $bookingOrigins = @(
     (New-S3Origin -BucketName $BookingBucketName -OriginAccessControlId $s3OacId),
+    (New-S3Origin -BucketName $RoomMediaBucketName -OriginAccessControlId $s3OacId),
     (New-LambdaOrigin -Id "booking-lambda-origin" -FunctionUrl $bookingFunctionUrl)
 )
 $bookingBehaviors = @(
-    (New-ApiBehavior -PathPattern "/public/*" -TargetOriginId "booking-lambda-origin" -ForwardHostFunctionArn $forwardHostFunctionArn)
+    (New-ApiBehavior -PathPattern "/public/*" -TargetOriginId "booking-lambda-origin" -ForwardHostFunctionArn $forwardHostFunctionArn),
+    (New-RoomMediaBehavior -PathPattern "/room-media/*" -TargetOriginId ("s3-{0}" -f $RoomMediaBucketName))
 )
 $bookingDistribution = Ensure-Distribution `
     -Comment $BookingDistributionComment `
@@ -929,6 +993,7 @@ $bookingDistribution = Ensure-Distribution `
 
 Ensure-BucketPolicyForDistribution -BucketName $PlatformBucketName -DistributionArn $platformDistribution.ARN
 Ensure-BucketPolicyForDistribution -BucketName $BookingBucketName -DistributionArn $bookingDistribution.ARN
+Ensure-BucketPolicyForDistribution -BucketName $RoomMediaBucketName -DistributionArn $bookingDistribution.ARN
 
 Sync-BuildToBucket -SourceDir $PlatformBuildDir -BucketName $PlatformBucketName
 Sync-BuildToBucket -SourceDir $BookingBuildDir -BucketName $BookingBucketName
@@ -945,7 +1010,9 @@ Update-LambdaDnsEnvironment `
     -FunctionNames @($PlatformLambdaName, $BookingLambdaName, $SourceLambdaName) `
     -PublicBaseDomainValue $PublicBaseDomain `
     -PublicCnameTargetValue $bookingCnameTarget `
-    -PlatformHostsValue ($PlatformHosts -join ',')
+    -PlatformHostsValue ($PlatformHosts -join ',') `
+    -RoomMediaBucketValue $RoomMediaBucketName `
+    -RoomMediaPublicBaseUrlValue ("https://{0}" -f $bookingDistribution.DomainName)
 
 Write-Host "" 
 Write-Host "S3 + CloudFront + Lambda hosting ensured" -ForegroundColor Green
@@ -969,6 +1036,10 @@ Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "  1. If you want first-party domains, create an ACM certificate in us-east-1 and rerun this script with -CertificateArn and aliases."
 Write-Host "  2. Point Route 53 aliases or CNAMEs at the CloudFront domains above."
 Write-Host "  3. Wait for CloudFront deployment to finish, then test platform and booking routes through CloudFront instead of the direct API endpoints."
+Write-Host ""
+Write-Host "WARNING: -PlatformAliases and -BookingAliases default to empty and OVERWRITE the live distribution's Aliases on every run." -ForegroundColor Red
+Write-Host "  Before rerunning, fetch current live aliases (aws cloudfront get-distribution-config --id <id> --query DistributionConfig.Aliases)" -ForegroundColor Red
+Write-Host "  and pass them all back explicitly, or any custom domain added outside this script (e.g. via a one-off update-distribution) will be dropped." -ForegroundColor Red
 
 
 

@@ -11,7 +11,8 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatCurrency } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, BedDouble, Users, Pencil, Trash2, DatabaseZap, FolderPlus, Loader2 } from "lucide-react";
+import { validateImageFile, uploadImage } from "@/lib/media-upload";
+import { Plus, BedDouble, Users, Pencil, Trash2, DatabaseZap, FolderPlus, Loader2, Image as ImageIcon, X, UploadCloud } from "lucide-react";
 
 interface Room {
   id: string;
@@ -47,6 +48,13 @@ const Rooms = () => {
     status: "available" as string, category_id: "" as string,
     count: 1, start_number: 1, name_prefix: "",
   });
+
+  const [photosOpen, setPhotosOpen] = useState(false);
+  const [photosRoom, setPhotosRoom] = useState<Room | null>(null);
+  const [photosList, setPhotosList] = useState<string[]>([]);
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const [savingPhotos, setSavingPhotos] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   const [catOpen, setCatOpen] = useState(false);
   const [catSubmitting, setCatSubmitting] = useState(false);
@@ -181,6 +189,57 @@ const Rooms = () => {
       category_id: room.category_id || "",
     });
     setDialogOpen(true);
+  };
+
+  const openPhotos = (room: Room) => {
+    setPhotosRoom(room);
+    setPhotosList(Array.isArray(room.images) ? room.images : []);
+    setPhotosOpen(true);
+  };
+
+  const handlePhotoFiles = async (files: FileList | null) => {
+    if (!files || !photosRoom) return;
+    const remaining = Math.max(0, 12 - photosList.length);
+    const toUpload = Array.from(files).slice(0, remaining);
+    if (toUpload.length === 0) {
+      toast({ title: "Photo limit reached", description: "Up to 12 photos per room", variant: "destructive" });
+      return;
+    }
+    setUploadingPhotos(true);
+    try {
+      for (const file of toUpload) {
+        const error = validateImageFile(file);
+        if (error) {
+          toast({ title: "Skipped a file", description: error, variant: "destructive" });
+          continue;
+        }
+        const url = await uploadImage(file, "room", photosRoom.id);
+        setPhotosList((current) => [...current, url]);
+      }
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
+      setUploadingPhotos(false);
+    }
+  };
+
+  const removePhoto = (index: number) => {
+    setPhotosList((current) => current.filter((_, i) => i !== index));
+  };
+
+  const savePhotos = async () => {
+    if (!photosRoom) return;
+    setSavingPhotos(true);
+    try {
+      await api.put(`/api/rooms/${photosRoom.id}`, { images: photosList });
+      toast({ title: "Photos updated" });
+      setPhotosOpen(false);
+      fetchData();
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setSavingPhotos(false);
+    }
   };
 
   const statusColor = (s: string) => {
@@ -366,6 +425,65 @@ const Rooms = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Manage room photos dialog */}
+      <Dialog open={photosOpen} onOpenChange={(o) => { setPhotosOpen(o); if (!o) setPhotosRoom(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Photos — {photosRoom?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div
+              className={`rounded-lg border-2 border-dashed p-8 text-center transition-colors ${dragOver ? "border-primary bg-primary/5" : "border-muted-foreground/25"}`}
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                handlePhotoFiles(e.dataTransfer.files);
+              }}
+            >
+              <UploadCloud className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
+              <p className="text-sm text-muted-foreground mb-2">Drag and drop photos here, or</p>
+              <Label htmlFor="room-photo-input" className="inline-flex">
+                <Button type="button" variant="outline" size="sm" asChild disabled={uploadingPhotos}>
+                  <span>{uploadingPhotos ? "Uploading..." : "Choose files"}</span>
+                </Button>
+              </Label>
+              <input
+                id="room-photo-input"
+                type="file"
+                multiple
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                disabled={uploadingPhotos}
+                onChange={(e) => { handlePhotoFiles(e.target.files); e.target.value = ""; }}
+              />
+              <p className="text-xs text-muted-foreground mt-2">JPEG, PNG, or WEBP, up to 5MB each, 12 photos max</p>
+            </div>
+            {photosList.length > 0 && (
+              <div className="grid grid-cols-3 gap-2">
+                {photosList.map((url, index) => (
+                  <div key={url} className="relative group/photo rounded-md overflow-hidden aspect-square bg-muted">
+                    <img src={url} alt={`Photo ${index + 1}`} className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removePhoto(index)}
+                      className="absolute top-1 right-1 bg-background/80 rounded-full p-1 opacity-0 group-hover/photo:opacity-100 transition-opacity"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <Button onClick={savePhotos} disabled={savingPhotos || uploadingPhotos} className="w-full">
+              {savingPhotos && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Save Photos
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1,2,3].map(i => <Card key={i} className="animate-pulse"><CardContent className="p-6"><div className="h-32 bg-muted rounded" /></CardContent></Card>)}
@@ -387,7 +505,12 @@ const Rooms = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {rooms.map((room) => (
-            <Card key={room.id} className="group hover:shadow-md transition-shadow">
+            <Card key={room.id} className="group hover:shadow-md transition-shadow overflow-hidden">
+              {Array.isArray(room.images) && room.images.length > 0 && (
+                <div className="h-32 overflow-hidden bg-muted">
+                  <img src={room.images[0]} alt={room.name} className="w-full h-full object-cover" />
+                </div>
+              )}
               <CardContent className="p-5">
                 <div className="flex items-start justify-between mb-3">
                   <div>
@@ -395,6 +518,7 @@ const Rooms = () => {
                     <p className="text-sm text-muted-foreground">{getCategoryName(room.category_id)}</p>
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openPhotos(room)}><ImageIcon className="w-3.5 h-3.5" /></Button>
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(room)}><Pencil className="w-3.5 h-3.5" /></Button>
                     <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(room.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                   </div>

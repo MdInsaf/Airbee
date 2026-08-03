@@ -10,6 +10,7 @@ from api.views import (
     housekeeping,
     maintenance,
     marketing,
+    media,
     messaging,
     notifications,
     payments,
@@ -86,6 +87,9 @@ urlpatterns = [
     # Waitlist (admin)
     path("waitlist", waitlist.WaitlistList.as_view()),
     path("waitlist/<str:waitlist_id>", waitlist.WaitlistDetail.as_view()),
+
+    # Media uploads
+    path("media/presign", media.MediaPresign.as_view()),
 
     # Settings
     path("settings", settings_view.SettingsView.as_view()),
